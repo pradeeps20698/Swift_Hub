@@ -26,28 +26,28 @@ st.divider()
 # ---- Dashboard tiles ---------------------------------------------------------
 DASHBOARDS = [
     {
-        "title": "Operations",
-        "icon": "📊",
-        "description": "Live trip, vehicle and driver operations.",
-        "url": "https://example.streamlit.app/operations",
+        "title": "Trip Log",
+        "icon": "📋",
+        "description": "Trip records, status and history.",
+        "url": "https://swifttriplog-ehjssp2jl5js85rstgqz47.streamlit.app/",
     },
     {
-        "title": "Finance",
+        "title": "Live Tracking",
+        "icon": "📍",
+        "description": "Real-time vehicle locations and movement.",
+        "url": "https://swiftlivetracking-bbycn4zvrcmtuat2gudgub.streamlit.app/",
+    },
+    {
+        "title": "Billing",
         "icon": "💰",
-        "description": "Revenue, expenses and P&L reporting.",
-        "url": "https://example.streamlit.app/finance",
+        "description": "Invoices, payments and billing reports.",
+        "url": "https://swiftbilling-iocaaipkggpttjxjo9lgcm.streamlit.app/",
     },
     {
-        "title": "Fleet",
-        "icon": "🛻",
-        "description": "Vehicle health, fuel and maintenance.",
-        "url": "https://example.streamlit.app/fleet",
-    },
-    {
-        "title": "HR",
-        "icon": "👥",
-        "description": "Driver and staff management.",
-        "url": "https://example.streamlit.app/hr",
+        "title": "Driver Performance",
+        "icon": "🏆",
+        "description": "Driver KPIs, scores and rankings.",
+        "url": "https://swiftdriverperformance-e7uksnstfkdzqdqgeuqmz3.streamlit.app/",
     },
 ]
 
