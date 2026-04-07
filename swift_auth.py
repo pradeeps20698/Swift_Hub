@@ -12,7 +12,8 @@ import streamlit as st
 from swift_db import (
     count_users,
     get_user,
-    init_users_table,
+    init_schema,
+    log_access,
     upsert_user,
 )
 
@@ -40,7 +41,7 @@ def _bootstrap_admins() -> list[str]:
 
 def _ensure_bootstrap() -> None:
     """Create the table and seed bootstrap admins if it's empty."""
-    init_users_table()
+    init_schema()
     if count_users() == 0:
         for email in _bootstrap_admins():
             upsert_user(email=email, role="admin")
@@ -104,6 +105,11 @@ def require_login() -> dict:
             upsert_user(email=email, name=name, role=user_row["role"], is_blocked=False)
         except Exception:
             pass
+
+    # Log first login this session
+    if not st.session_state.get("_login_logged"):
+        log_access(email, action="login")
+        st.session_state["_login_logged"] = True
 
     return {
         "email": email,
