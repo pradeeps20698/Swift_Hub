@@ -8,16 +8,32 @@ from __future__ import annotations
 import streamlit as st
 
 
-def _allowed_domains() -> list[str]:
+def _app_cfg():
     try:
-        app_cfg = st.secrets["app"]
+        return st.secrets["app"]
     except Exception:
-        return []
-    domains = app_cfg.get("allowed_email_domains")
+        return {}
+
+
+def _allowed_domains() -> list[str]:
+    cfg = _app_cfg()
+    domains = cfg.get("allowed_email_domains")
     if domains:
         return [d.lower() for d in domains]
-    single = app_cfg.get("allowed_email_domain")
+    single = cfg.get("allowed_email_domain")
     return [single.lower()] if single else []
+
+
+def _allowed_emails() -> list[str]:
+    cfg = _app_cfg()
+    emails = cfg.get("allowed_emails") or []
+    return [e.lower() for e in emails]
+
+
+def _blocked_emails() -> list[str]:
+    cfg = _app_cfg()
+    emails = cfg.get("blocked_emails") or []
+    return [e.lower() for e in emails]
 
 
 def require_login(provider: str | None = None) -> dict:
@@ -37,9 +53,23 @@ def require_login(provider: str | None = None) -> dict:
 
     email = (getattr(st.user, "email", "") or "").lower()
     domains = _allowed_domains()
-    if domains and not any(email.endswith("@" + d) for d in domains):
-        allowed = ", ".join("@" + d for d in domains)
-        st.error(f"Access restricted to {allowed} accounts. You are signed in as {email}.")
+    allow_list = _allowed_emails()
+    block_list = _blocked_emails()
+
+    denied_reason = None
+    if email in block_list:
+        denied_reason = f"Access for {email} has been revoked."
+    elif allow_list:
+        # Explicit allowlist takes precedence — user must be on it.
+        if email not in allow_list:
+            denied_reason = f"{email} is not authorized to access Swift Hub."
+    elif domains:
+        if not any(email.endswith("@" + d) for d in domains):
+            allowed = ", ".join("@" + d for d in domains)
+            denied_reason = f"Access restricted to {allowed} accounts. You are signed in as {email}."
+
+    if denied_reason:
+        st.error(denied_reason)
         if st.button("Sign out"):
             st.logout()
         st.stop()
