@@ -18,6 +18,23 @@ from swift_db import (
 )
 
 
+def _configured_providers() -> list[str]:
+    """Return the list of named providers present under [auth.*]."""
+    try:
+        auth = st.secrets["auth"]
+    except Exception:
+        return []
+    found = []
+    for name in ("google", "microsoft"):
+        try:
+            sect = auth[name]
+            if "client_id" in sect:
+                found.append(name)
+        except Exception:
+            pass
+    return found
+
+
 def _app_cfg():
     try:
         return st.secrets["app"]
@@ -60,8 +77,18 @@ def require_login() -> dict:
     if not getattr(st.user, "is_logged_in", False):
         st.title("Swift Hub")
         st.write("Please sign in to continue.")
-        if st.button("Sign in with Google", type="primary"):
-            st.login()
+        providers = _configured_providers()
+        c1, c2 = st.columns(2)
+        if "google" in providers:
+            if c1.button("Sign in with Google", type="primary", use_container_width=True):
+                st.login("google")
+        if "microsoft" in providers:
+            if c2.button("Sign in with Microsoft", use_container_width=True):
+                st.login("microsoft")
+        if not providers:
+            # Fallback: single default [auth] section
+            if st.button("Sign in", type="primary"):
+                st.login()
         st.stop()
 
     email = (getattr(st.user, "email", "") or "").lower()
