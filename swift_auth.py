@@ -1,11 +1,20 @@
 """Reusable auth helper for Swift Hub and child dashboards.
 
 Uses Streamlit's native st.login() (OIDC) with Google as the provider.
-Restricts access to a configured email domain.
+Access is gated against a Postgres-backed user table (swift_hub_users).
+On first run, the table is auto-created and bootstrap admins from
+secrets are seeded.
 """
 from __future__ import annotations
 
 import streamlit as st
+
+from swift_db import (
+    count_users,
+    get_user,
+    init_users_table,
+    upsert_user,
+)
 
 
 def _app_cfg():
@@ -24,60 +33,83 @@ def _allowed_domains() -> list[str]:
     return [single.lower()] if single else []
 
 
-def _allowed_emails() -> list[str]:
+def _bootstrap_admins() -> list[str]:
     cfg = _app_cfg()
-    emails = cfg.get("allowed_emails") or []
-    return [e.lower() for e in emails]
+    return [e.lower() for e in (cfg.get("bootstrap_admins") or [])]
 
 
-def _blocked_emails() -> list[str]:
-    cfg = _app_cfg()
-    emails = cfg.get("blocked_emails") or []
-    return [e.lower() for e in emails]
+def _ensure_bootstrap() -> None:
+    """Create the table and seed bootstrap admins if it's empty."""
+    init_users_table()
+    if count_users() == 0:
+        for email in _bootstrap_admins():
+            upsert_user(email=email, role="admin")
 
 
-def require_login(provider: str | None = None) -> dict:
-    """Block the page until the user is logged in with an allowed email.
+def is_admin(email: str) -> bool:
+    u = get_user(email)
+    return bool(u and u["role"] == "admin" and not u["is_blocked"])
 
-    Returns the user info dict on success.
+
+def require_login() -> dict:
+    """Block the page until the user is logged in and authorized.
+
+    Returns a dict with email, name, picture, role.
     """
     if not getattr(st.user, "is_logged_in", False):
         st.title("Swift Hub")
         st.write("Please sign in to continue.")
         if st.button("Sign in with Google", type="primary"):
-            if provider:
-                st.login(provider)
-            else:
-                st.login()
+            st.login()
         st.stop()
 
     email = (getattr(st.user, "email", "") or "").lower()
-    domains = _allowed_domains()
-    allow_list = _allowed_emails()
-    block_list = _blocked_emails()
+    name = getattr(st.user, "name", "") or ""
 
-    denied_reason = None
-    if email in block_list:
-        denied_reason = f"Access for {email} has been revoked."
-    elif allow_list:
-        # Explicit allowlist takes precedence — user must be on it.
-        if email not in allow_list:
-            denied_reason = f"{email} is not authorized to access Swift Hub."
-    elif domains:
-        if not any(email.endswith("@" + d) for d in domains):
-            allowed = ", ".join("@" + d for d in domains)
-            denied_reason = f"Access restricted to {allowed} accounts. You are signed in as {email}."
-
-    if denied_reason:
-        st.error(denied_reason)
+    # Make sure the table exists and has at least one admin.
+    try:
+        _ensure_bootstrap()
+    except Exception as e:
+        st.error(f"Database unavailable: {e}")
         if st.button("Sign out"):
             st.logout()
         st.stop()
 
+    domains = _allowed_domains()
+    domain_ok = (not domains) or any(email.endswith("@" + d) for d in domains)
+
+    user_row = get_user(email)
+
+    # Auto-provision: if the email matches an allowed domain and isn't in
+    # the table yet, add them as a regular user. Admins must promote them
+    # later from the Manage Users panel.
+    if user_row is None and domain_ok:
+        upsert_user(email=email, name=name, role="user")
+        user_row = get_user(email)
+
+    if user_row is None or user_row["is_blocked"]:
+        reason = (
+            f"Access for {email} has been revoked."
+            if user_row and user_row["is_blocked"]
+            else f"{email} is not authorized to access Swift Hub. Contact an administrator."
+        )
+        st.error(reason)
+        if st.button("Sign out"):
+            st.logout()
+        st.stop()
+
+    # Keep name fresh if Google has it.
+    if name and name != (user_row.get("name") or ""):
+        try:
+            upsert_user(email=email, name=name, role=user_row["role"], is_blocked=False)
+        except Exception:
+            pass
+
     return {
         "email": email,
-        "name": getattr(st.user, "name", ""),
+        "name": name,
         "picture": getattr(st.user, "picture", ""),
+        "role": user_row["role"],
     }
 
 
