@@ -15,7 +15,7 @@ def _allowed_domain() -> str:
         return ""
 
 
-def require_login(provider: str = "google") -> dict:
+def require_login(provider: str | None = None) -> dict:
     """Block the page until the user is logged in with an allowed email.
 
     Returns the user info dict on success.
@@ -24,7 +24,10 @@ def require_login(provider: str = "google") -> dict:
         st.title("Swift Hub")
         st.write("Please sign in to continue.")
         if st.button("Sign in with Google", type="primary"):
-            st.login(provider)
+            if provider:
+                st.login(provider)
+            else:
+                st.login()
         st.stop()
 
     email = (getattr(st.user, "email", "") or "").lower()
