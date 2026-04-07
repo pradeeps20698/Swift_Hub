@@ -83,13 +83,7 @@ else:
                 st.write(d["description"])
                 # Use a real link_button + log click via query param fallback isn't reliable;
                 # log on render of an "Open" button click.
-                if st.button("Open", key=f"open_{d['key']}", use_container_width=True):
-                    log_access(user["email"], action="open", dashboard_key=d["key"])
-                    st.markdown(
-                        f'<meta http-equiv="refresh" content="0; url={d["url"]}">',
-                        unsafe_allow_html=True,
-                    )
-                    st.link_button("Click here if you are not redirected", d["url"])
+                st.link_button("Open", d["url"], use_container_width=True)
 
 # ---- Admin section -----------------------------------------------------------
 if is_admin(user["email"]):
