@@ -1,38 +1,34 @@
-"""Reusable auth helper for Swift Hub and child dashboards.
+"""Email-OTP auth gate for Swift Hub.
 
-Uses Streamlit's native st.login() (OIDC) with Google as the provider.
-Access is gated against a Postgres-backed user table (swift_hub_users).
-On first run, the table is auto-created and bootstrap admins from
-secrets are seeded.
+Flow:
+  1. User enters their email.
+  2. We generate a 6-digit code, store its hash in Postgres, and email it.
+     (If SMTP isn't configured, we show the code on-screen for dev/testing.)
+  3. User enters the code.
+  4. On success, we look up / auto-provision the user in swift_hub_users
+     and set st.session_state["sh_user_email"] for the rest of the session.
+
+Domain restrictions and blocked users still apply.
 """
 from __future__ import annotations
+
+import re
 
 import streamlit as st
 
 from swift_db import (
+    consume_login_code,
     count_users,
     get_user,
     init_schema,
     log_access,
+    store_login_code,
     upsert_user,
 )
+from swift_otp import generate_code, hash_code, send_code, smtp_configured
 
-
-def _configured_providers() -> list[str]:
-    """Return the list of named providers present under [auth.*]."""
-    try:
-        auth = st.secrets["auth"]
-    except Exception:
-        return []
-    found = []
-    for name in ("google", "microsoft"):
-        try:
-            sect = auth[name]
-            if "client_id" in sect:
-                found.append(name)
-        except Exception:
-            pass
-    return found
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+SESSION_KEY = "sh_user_email"
 
 
 def _app_cfg():
@@ -52,12 +48,10 @@ def _allowed_domains() -> list[str]:
 
 
 def _bootstrap_admins() -> list[str]:
-    cfg = _app_cfg()
-    return [e.lower() for e in (cfg.get("bootstrap_admins") or [])]
+    return [e.lower() for e in (_app_cfg().get("bootstrap_admins") or [])]
 
 
 def _ensure_bootstrap() -> None:
-    """Create the table and seed bootstrap admins if it's empty."""
     init_schema()
     if count_users() == 0:
         for email in _bootstrap_admins():
@@ -69,94 +63,149 @@ def is_admin(email: str) -> bool:
     return bool(u and u["role"] == "admin" and not u["is_blocked"])
 
 
-def require_login() -> dict:
-    """Block the page until the user is logged in and authorized.
+# ---------------------------------------------------------------------------
+# Login UI
+# ---------------------------------------------------------------------------
+def _domain_ok(email: str) -> bool:
+    domains = _allowed_domains()
+    if not domains:
+        return True
+    return any(email.endswith("@" + d) for d in domains)
 
-    Returns a dict with email, name, picture, role.
-    """
-    if not getattr(st.user, "is_logged_in", False):
-        st.title("Swift Hub")
-        st.write("Please sign in to continue.")
-        providers = _configured_providers()
+
+def _request_code_ui() -> None:
+    st.title("🚛 Swift Hub")
+    st.write("Sign in with your company email.")
+
+    with st.form("request_code_form"):
+        email = st.text_input("Email", placeholder="you@srlpl.in")
+        submit = st.form_submit_button("Send login code", type="primary")
+
+    if not submit:
+        return
+
+    email = (email or "").strip().lower()
+    if not EMAIL_RE.match(email):
+        st.error("Enter a valid email address.")
+        return
+    if not _domain_ok(email):
+        allowed = ", ".join("@" + d for d in _allowed_domains())
+        st.error(f"Only {allowed} accounts are allowed.")
+        return
+
+    # Generate, store, send
+    code = generate_code()
+    try:
+        store_login_code(email, hash_code(code), ttl_seconds=600)
+    except Exception as e:
+        st.error(f"Could not store login code: {e}")
+        return
+
+    sent, info = send_code(email, code)
+    st.session_state["sh_pending_email"] = email
+    if sent:
+        st.success(f"A 6-digit login code has been sent to {email}. It expires in 10 minutes.")
+    else:
+        # Dev / fallback mode
+        if not smtp_configured():
+            st.warning(
+                "SMTP not configured yet — showing code on screen for testing. "
+                "Configure `[smtp]` in Streamlit Cloud Secrets to email codes."
+            )
+            st.code(code, language="text")
+        else:
+            st.error(f"Could not send email: {info}")
+    st.rerun()
+
+
+def _verify_code_ui() -> None:
+    email = st.session_state.get("sh_pending_email", "")
+    st.title("🚛 Swift Hub")
+    st.write(f"Enter the 6-digit code sent to **{email}**.")
+
+    with st.form("verify_code_form"):
+        code = st.text_input("Login code", max_chars=6, placeholder="123456")
         c1, c2 = st.columns(2)
-        if "google" in providers:
-            if c1.button("Sign in with Google", type="primary", use_container_width=True):
-                st.login("google")
-        if "microsoft" in providers:
-            if c2.button("Sign in with Microsoft", use_container_width=True):
-                st.login("microsoft")
-        if not providers:
-            # Fallback: single default [auth] section
-            if st.button("Sign in", type="primary"):
-                st.login()
-        st.stop()
+        verify = c1.form_submit_button("Verify", type="primary")
+        change = c2.form_submit_button("Use a different email")
 
-    email = (getattr(st.user, "email", "") or "").lower()
-    name = getattr(st.user, "name", "") or ""
+    if change:
+        st.session_state.pop("sh_pending_email", None)
+        st.rerun()
+        return
 
-    # Make sure the table exists and has at least one admin.
+    if not verify:
+        return
+
+    code = (code or "").strip()
+    if not code.isdigit() or len(code) != 6:
+        st.error("Enter the 6-digit code.")
+        return
+
+    try:
+        ok = consume_login_code(email, hash_code(code))
+    except Exception as e:
+        st.error(f"Database error: {e}")
+        return
+
+    if not ok:
+        st.error("Invalid or expired code. Request a new one.")
+        return
+
+    # Success — auto-provision user if needed
+    row = get_user(email)
+    if row is None:
+        upsert_user(email=email, name="", role="user")
+        row = get_user(email)
+
+    if row["is_blocked"]:
+        st.error(f"Access for {email} has been revoked.")
+        return
+
+    st.session_state[SESSION_KEY] = email
+    st.session_state.pop("sh_pending_email", None)
+    log_access(email, action="login")
+    st.rerun()
+
+
+def require_login() -> dict:
+    """Block the page until the user has verified an OTP. Returns user dict."""
     try:
         _ensure_bootstrap()
     except Exception as e:
         st.error(f"Database unavailable: {e}")
-        if st.button("Sign out"):
-            st.logout()
         st.stop()
 
-    domains = _allowed_domains()
-    domain_ok = (not domains) or any(email.endswith("@" + d) for d in domains)
-
-    user_row = get_user(email)
-
-    # Auto-provision: if the email matches an allowed domain and isn't in
-    # the table yet, add them as a regular user. Admins must promote them
-    # later from the Manage Users panel.
-    if user_row is None and domain_ok:
-        upsert_user(email=email, name=name, role="user")
-        user_row = get_user(email)
-
-    if user_row is None or user_row["is_blocked"]:
-        reason = (
-            f"Access for {email} has been revoked."
-            if user_row and user_row["is_blocked"]
-            else f"{email} is not authorized to access Swift Hub. Contact an administrator."
-        )
-        st.error(reason)
-        if st.button("Sign out"):
-            st.logout()
+    email = st.session_state.get(SESSION_KEY)
+    if not email:
+        if st.session_state.get("sh_pending_email"):
+            _verify_code_ui()
+        else:
+            _request_code_ui()
         st.stop()
 
-    # Keep name fresh if Google has it.
-    if name and name != (user_row.get("name") or ""):
-        try:
-            upsert_user(email=email, name=name, role=user_row["role"], is_blocked=False)
-        except Exception:
-            pass
-
-    # Log first login this session
-    if not st.session_state.get("_login_logged"):
-        log_access(email, action="login")
-        st.session_state["_login_logged"] = True
+    row = get_user(email)
+    if row is None or row["is_blocked"]:
+        st.session_state.pop(SESSION_KEY, None)
+        st.error("Your access has been revoked. Please sign in again.")
+        st.stop()
 
     return {
         "email": email,
-        "name": name,
-        "picture": getattr(st.user, "picture", ""),
-        "role": user_row["role"],
+        "name": row.get("name") or "",
+        "role": row["role"],
     }
 
 
 def sidebar_user_box() -> None:
-    """Render a small user box + logout button in the sidebar."""
-    if not getattr(st.user, "is_logged_in", False):
+    email = st.session_state.get(SESSION_KEY)
+    if not email:
         return
+    row = get_user(email) or {}
     with st.sidebar:
-        pic = getattr(st.user, "picture", "")
-        name = getattr(st.user, "name", "")
-        email = getattr(st.user, "email", "")
-        if pic:
-            st.image(pic, width=64)
-        st.markdown(f"**{name}**")
+        st.markdown(f"**{row.get('name') or email}**")
         st.caption(email)
+        st.caption(f"Role: `{row.get('role', 'user')}`")
         if st.button("Sign out", use_container_width=True):
-            st.logout()
+            st.session_state.pop(SESSION_KEY, None)
+            st.rerun()

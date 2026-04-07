@@ -56,6 +56,16 @@ def init_schema() -> None:
               ON swift_hub_access_logs (ts DESC);
             CREATE INDEX IF NOT EXISTS idx_swift_hub_access_logs_email
               ON swift_hub_access_logs (email);
+
+            CREATE TABLE IF NOT EXISTS swift_hub_login_codes (
+                email       TEXT NOT NULL,
+                code_hash   TEXT NOT NULL,
+                expires_at  TIMESTAMPTZ NOT NULL,
+                used        BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_swift_hub_login_codes_email
+              ON swift_hub_login_codes (email, created_at DESC);
             """
         )
 
@@ -199,6 +209,41 @@ def log_access(email: str, action: str, dashboard_key: str | None = None) -> Non
     except Exception:
         # Logging must never break the app.
         pass
+
+
+def store_login_code(email: str, code_hash: str, ttl_seconds: int = 600) -> None:
+    email = email.lower().strip()
+    with get_conn().cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO swift_hub_login_codes (email, code_hash, expires_at)
+            VALUES (%s, %s, NOW() + (%s || ' seconds')::interval)
+            """,
+            (email, code_hash, str(ttl_seconds)),
+        )
+
+
+def consume_login_code(email: str, code_hash: str) -> bool:
+    """Mark the most recent matching, unused, unexpired code as used. Returns True on success."""
+    email = email.lower().strip()
+    with get_conn().cursor() as cur:
+        cur.execute(
+            """
+            UPDATE swift_hub_login_codes
+               SET used = TRUE
+             WHERE ctid IN (
+               SELECT ctid FROM swift_hub_login_codes
+                WHERE email = %s
+                  AND code_hash = %s
+                  AND used = FALSE
+                  AND expires_at > NOW()
+                ORDER BY created_at DESC
+                LIMIT 1
+             )
+            """,
+            (email, code_hash),
+        )
+        return cur.rowcount > 0
 
 
 def recent_logs(limit: int = 200) -> list[dict]:

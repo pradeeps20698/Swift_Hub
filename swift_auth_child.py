@@ -1,100 +1,48 @@
-"""Drop-in auth + access control for child dashboards (Trip Log, Billing, etc.).
+"""Drop-in OTP auth + access control for child dashboards.
 
 Usage in a child dashboard's main script:
 
     from swift_auth_child import require_dashboard_access
+    user = require_dashboard_access("trip_log")
 
-    user = require_dashboard_access("trip_log")  # use the matching DASHBOARD key
-
-This will:
-  - force Google login (st.login)
-  - look the user up in swift_hub_users (shared Postgres)
-  - check that their role has permission for this dashboard_key
-  - log the open into swift_hub_access_logs
-  - render a Sign-out button in the sidebar
-
-The child dashboard MUST share the same `[auth]` and `[database]` secrets
-as Swift Hub (copy them into its .streamlit/secrets.toml on Streamlit Cloud).
+Each child app runs its own OTP login (Streamlit Cloud apps don't share
+session state across subdomains), but they all share the same Postgres
+user table, so a user added in Swift Hub can immediately log in to any
+child dashboard their role permits.
 """
 from __future__ import annotations
 
 import streamlit as st
 
+# Reuse the same OTP gate from swift_auth so behavior stays in sync.
+from swift_auth import require_login as _hub_require_login
 from swift_db import (
-    get_user,
     init_schema,
     log_access,
     user_can_access,
 )
 
 
-def _login_gate() -> str:
-    if not getattr(st.user, "is_logged_in", False):
-        st.title("Sign in required")
-        st.write("Please sign in with your company Google account.")
-        if st.button("Sign in with Google", type="primary"):
-            st.login()
-        st.stop()
-    return (getattr(st.user, "email", "") or "").lower()
-
-
 def require_dashboard_access(dashboard_key: str) -> dict:
-    """Block the page until the user is logged in AND permitted for this dashboard.
-
-    Returns a dict with email/name/role.
-    """
-    email = _login_gate()
-
+    """Block the page until the user is logged in AND permitted for this dashboard."""
     try:
         init_schema()
     except Exception as e:
         st.error(f"Database unavailable: {e}")
         st.stop()
 
-    row = get_user(email)
-    if row is None:
-        st.error(f"{email} is not provisioned in Swift Hub. Ask an administrator to add you.")
-        if st.button("Sign out"):
-            st.logout()
-        st.stop()
+    user = _hub_require_login()  # forces OTP gate, returns dict with email/role
 
-    if row["is_blocked"]:
-        st.error(f"Access for {email} has been revoked.")
-        if st.button("Sign out"):
-            st.logout()
-        st.stop()
-
-    if not user_can_access(email, dashboard_key):
-        log_access(email, action="denied", dashboard_key=dashboard_key)
+    if not user_can_access(user["email"], dashboard_key):
+        log_access(user["email"], action="denied", dashboard_key=dashboard_key)
         st.error(
-            f"Your role (`{row['role']}`) does not have access to this dashboard. "
+            f"Your role (`{user['role']}`) does not have access to this dashboard. "
             "Contact an administrator."
         )
-        if st.button("Sign out"):
-            st.logout()
         st.stop()
 
     if not st.session_state.get(f"_logged_open_{dashboard_key}"):
-        log_access(email, action="open", dashboard_key=dashboard_key)
+        log_access(user["email"], action="open", dashboard_key=dashboard_key)
         st.session_state[f"_logged_open_{dashboard_key}"] = True
 
-    _sidebar_box(row)
-    return {
-        "email": email,
-        "name": getattr(st.user, "name", "") or row.get("name") or "",
-        "role": row["role"],
-    }
-
-
-def _sidebar_box(row: dict) -> None:
-    with st.sidebar:
-        pic = getattr(st.user, "picture", "")
-        name = getattr(st.user, "name", "") or row.get("name") or ""
-        email = getattr(st.user, "email", "")
-        if pic:
-            st.image(pic, width=64)
-        st.markdown(f"**{name}**")
-        st.caption(email)
-        st.caption(f"Role: `{row['role']}`")
-        if st.button("Sign out", use_container_width=True):
-            st.logout()
+    return user
