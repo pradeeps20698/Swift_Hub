@@ -8,11 +8,16 @@ from __future__ import annotations
 import streamlit as st
 
 
-def _allowed_domain() -> str:
+def _allowed_domains() -> list[str]:
     try:
-        return st.secrets["app"]["allowed_email_domain"]
+        app_cfg = st.secrets["app"]
     except Exception:
-        return ""
+        return []
+    domains = app_cfg.get("allowed_email_domains")
+    if domains:
+        return [d.lower() for d in domains]
+    single = app_cfg.get("allowed_email_domain")
+    return [single.lower()] if single else []
 
 
 def require_login(provider: str | None = None) -> dict:
@@ -31,9 +36,10 @@ def require_login(provider: str | None = None) -> dict:
         st.stop()
 
     email = (getattr(st.user, "email", "") or "").lower()
-    domain = _allowed_domain().lower()
-    if domain and not email.endswith("@" + domain):
-        st.error(f"Access restricted to @{domain} accounts. You are signed in as {email}.")
+    domains = _allowed_domains()
+    if domains and not any(email.endswith("@" + d) for d in domains):
+        allowed = ", ".join("@" + d for d in domains)
+        st.error(f"Access restricted to {allowed} accounts. You are signed in as {email}.")
         if st.button("Sign out"):
             st.logout()
         st.stop()
