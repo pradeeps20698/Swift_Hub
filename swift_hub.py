@@ -248,7 +248,7 @@ if is_admin(user["email"]):
                 )
                 opened = opened.reindex(index=all_emails, columns=dash_keys, fill_value=0)
 
-            display = opened.applymap(lambda n: "✅" if n > 0 else "—")
+            display = opened.map(lambda n: "✅" if n > 0 else "—")
             display.columns = [dash_titles.get(k, k) for k in display.columns]
             display.insert(0, "User", display.index)
             display = display.reset_index(drop=True)
