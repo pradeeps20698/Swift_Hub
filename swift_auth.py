@@ -243,17 +243,6 @@ def require_login() -> dict:
         st.stop()
 
     email = st.session_state.get(SESSION_KEY)
-    raw_token = st.session_state.get(RAW_TOKEN_KEY)
-
-    # Always re-validate the session against the DB on every render so a
-    # revoked session (e.g. via Sign Out from another tab) kicks the user
-    # out of any tab on its next interaction.
-    if email and raw_token:
-        if not lookup_session(raw_token):
-            st.session_state.pop(SESSION_KEY, None)
-            st.session_state.pop(RAW_TOKEN_KEY, None)
-            _clear_token_from_browser()
-            email = None
 
     if not email:
         # Try to restore from a previously-issued session token in the browser

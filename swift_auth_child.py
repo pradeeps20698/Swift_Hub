@@ -16,11 +16,6 @@ import time
 
 import streamlit as st
 
-try:
-    from streamlit_autorefresh import st_autorefresh
-except Exception:  # pragma: no cover - optional dep
-    st_autorefresh = None
-
 # Reuse the same OTP gate from swift_auth so behavior stays in sync.
 from swift_auth import require_login as _hub_require_login
 from swift_db import (
@@ -37,12 +32,6 @@ def require_dashboard_access(dashboard_key: str) -> dict:
     except Exception as e:
         st.error(f"Database unavailable: {e}")
         st.stop()
-
-    # Force a full-script rerun every 30s so that session revocation
-    # (e.g. user signed out from Swift Hub) propagates even when the
-    # dashboard is using @st.fragment for its UI sections.
-    if st_autorefresh is not None:
-        st_autorefresh(interval=30_000, key=f"auth_recheck_{dashboard_key}")
 
     user = _hub_require_login()  # forces OTP gate, returns dict with email/role
 
