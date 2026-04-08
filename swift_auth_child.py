@@ -16,29 +16,83 @@ import time
 
 import streamlit as st
 
-# Reuse the same OTP gate from swift_auth so behavior stays in sync.
-from swift_auth import require_login as _hub_require_login
+from swift_auth import SESSION_KEY, RAW_TOKEN_KEY
 from swift_db import (
+    get_user,
     init_schema,
     log_access,
+    lookup_session,
     user_can_access,
 )
 
+SWIFT_HUB_URL = "https://swiftapp-838rpjkwfx8t2uprdmffsd.streamlit.app/"
+
+
+def _block_with_hub_redirect() -> None:
+    """Show a 'go to Swift Hub' message instead of an OTP login screen."""
+    st.markdown(
+        f"""
+        <div style='text-align:center;margin-top:80px'>
+          <h1>🔒 Access via Swift Hub</h1>
+          <p style='color:#888;font-size:18px'>
+            This dashboard can only be opened from Swift Hub.
+          </p>
+          <p style='margin-top:32px'>
+            <a href='{SWIFT_HUB_URL}' target='_self'
+               style='background:#ff4b4b;color:#fff;padding:12px 28px;
+                      border-radius:8px;text-decoration:none;font-weight:600'>
+              Go to Swift Hub →
+            </a>
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
 
 def require_dashboard_access(dashboard_key: str) -> dict:
-    """Block the page until the user is logged in AND permitted for this dashboard."""
+    """Allow the page only if the user arrived via a valid Swift Hub ?s= token.
+    Otherwise show a 'Go to Swift Hub' page — never an OTP login screen."""
     try:
         init_schema()
-    except Exception as e:
-        st.error(f"Database unavailable: {e}")
-        st.stop()
+    except Exception:
+        _block_with_hub_redirect()
 
-    # Lock this app to Swift-Hub-launched sessions only:
-    # swift_auth will skip localStorage entirely and require a fresh
-    # ?s= token from Swift Hub for every new tab.
-    st.session_state["sh_child_mode"] = True
+    # Already authenticated in this Streamlit session? (refresh / interaction)
+    email = st.session_state.get(SESSION_KEY)
 
-    user = _hub_require_login()  # forces OTP gate, returns dict with email/role
+    if not email:
+        # Look for a session token passed from Swift Hub via ?s=<token>
+        try:
+            raw = st.query_params.get("s")
+        except Exception:
+            raw = None
+        if not raw:
+            _block_with_hub_redirect()
+
+        session_email = lookup_session(raw)
+        if not session_email:
+            _block_with_hub_redirect()
+
+        row = get_user(session_email)
+        if not row or row["is_blocked"]:
+            _block_with_hub_redirect()
+
+        st.session_state[SESSION_KEY] = session_email
+        st.session_state[RAW_TOKEN_KEY] = raw
+        email = session_email
+
+    # Build the user dict locally (no OTP gate involved)
+    row = get_user(email)
+    if not row or row["is_blocked"]:
+        _block_with_hub_redirect()
+
+    user = {
+        "email": email,
+        "name": row.get("name") or "",
+        "role": row["role"],
+    }
 
     if not user_can_access(user["email"], dashboard_key):
         log_access(user["email"], action="denied", dashboard_key=dashboard_key)
