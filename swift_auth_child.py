@@ -29,36 +29,29 @@ SWIFT_HUB_URL = "https://swiftapp-838rpjkwfx8t2uprdmffsd.streamlit.app/"
 
 
 def _block_with_hub_redirect() -> None:
-    """Render an in-iframe page that auto-redirects the top window to Swift Hub."""
-    import streamlit.components.v1 as components
-
-    components.html(
+    """Show an 'Access via Swift Hub' page with a working link."""
+    st.markdown(
         f"""
-        <html>
-          <body style="background:#0e1117;color:#fff;font-family:-apple-system,
-                       BlinkMacSystemFont,sans-serif;text-align:center;
-                       padding-top:80px;margin:0">
-            <h1 style="font-size:38px">🔒 Access via Swift Hub</h1>
-            <p style="color:#888;font-size:18px">
-              This dashboard can only be opened from Swift Hub.
-            </p>
-            <p style="margin-top:32px">
-              <a href="{SWIFT_HUB_URL}" target="_top" rel="noopener"
-                 style="background:#ff4b4b;color:#fff;text-decoration:none;
-                        padding:14px 36px;border-radius:8px;font-size:16px;
-                        font-weight:600;display:inline-block">
-                Go to Swift Hub →
-              </a>
-            </p>
-            <p style="margin-top:16px;font-size:13px;color:#666">
-              If the button doesn't work,
-              <a href="{SWIFT_HUB_URL}" target="_blank" rel="noopener"
-                 style="color:#888">open Swift Hub in a new tab</a>.
-            </p>
-          </body>
-        </html>
+        <div style="text-align:center;margin-top:80px">
+          <h1 style="font-size:38px">🔒 Access via Swift Hub</h1>
+          <p style="color:#888;font-size:18px">
+            This dashboard can only be opened from Swift Hub.
+          </p>
+          <p style="margin-top:32px">
+            <a href="{SWIFT_HUB_URL}" target="_blank" rel="noopener"
+               style="background:#ff4b4b;color:#fff;text-decoration:none;
+                      padding:14px 36px;border-radius:8px;font-size:16px;
+                      font-weight:600;display:inline-block">
+              Open Swift Hub →
+            </a>
+          </p>
+          <p style="margin-top:16px;font-size:13px;color:#666">
+            <a href="{SWIFT_HUB_URL}" target="_blank" rel="noopener"
+               style="color:#888;text-decoration:underline">{SWIFT_HUB_URL}</a>
+          </p>
+        </div>
         """,
-        height=420,
+        unsafe_allow_html=True,
     )
     st.stop()
 
