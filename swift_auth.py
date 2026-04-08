@@ -13,10 +13,9 @@ Domain restrictions and blocked users still apply.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
 
-import extra_streamlit_components as stx
 import streamlit as st
+from streamlit_cookies_controller import CookieController
 
 from swift_db import (
     consume_login_code,
@@ -34,31 +33,32 @@ EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 SESSION_KEY = "sh_user_email"
 
 
-def _cookie_manager() -> stx.CookieManager:
-    if "sh_cookie_mgr" not in st.session_state:
-        st.session_state["sh_cookie_mgr"] = stx.CookieManager(key="sh_cookie_mgr")
-    return st.session_state["sh_cookie_mgr"]
+def _cookie_controller() -> CookieController:
+    if "sh_cookie_ctrl" not in st.session_state:
+        st.session_state["sh_cookie_ctrl"] = CookieController(key="sh_cookie_ctrl")
+    return st.session_state["sh_cookie_ctrl"]
 
 
 def _set_session_cookie(email: str) -> None:
     token = make_token(email)
-    expires = datetime.now(timezone.utc) + timedelta(seconds=DEFAULT_TTL_SECONDS)
     try:
-        _cookie_manager().set(COOKIE_NAME, token, expires_at=expires, key="sh_set_cookie")
+        _cookie_controller().set(
+            COOKIE_NAME, token, max_age=DEFAULT_TTL_SECONDS, path="/"
+        )
     except Exception:
         pass
 
 
 def _clear_session_cookie() -> None:
     try:
-        _cookie_manager().delete(COOKIE_NAME, key="sh_del_cookie")
+        _cookie_controller().remove(COOKIE_NAME, path="/")
     except Exception:
         pass
 
 
 def _restore_from_cookie() -> str | None:
     try:
-        token = _cookie_manager().get(COOKIE_NAME)
+        token = _cookie_controller().get(COOKIE_NAME)
     except Exception:
         return None
     if not token:
@@ -214,11 +214,6 @@ def require_login() -> dict:
 
     email = st.session_state.get(SESSION_KEY)
     if not email:
-        # Force the cookie component to render so JS can fetch cookies
-        try:
-            _cookie_manager().get_all()
-        except Exception:
-            pass
         # Try to restore from a previously-issued signed cookie
         cookie_email = _restore_from_cookie()
         if cookie_email:
@@ -229,8 +224,8 @@ def require_login() -> dict:
             else:
                 _clear_session_cookie()
         elif not st.session_state.get("sh_cookie_checked"):
-            # First load after refresh: the JS cookie component hasn't
-            # populated yet. Rerun once to give it a chance.
+            # First load: JS cookie component may not have populated yet.
+            # Rerun once to give it a chance before showing the login UI.
             st.session_state["sh_cookie_checked"] = True
             st.rerun()
 
