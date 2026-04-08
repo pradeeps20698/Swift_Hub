@@ -199,7 +199,9 @@ def _verify_code_ui() -> None:
 
     st.session_state[SESSION_KEY] = email
     st.session_state.pop("sh_pending_email", None)
-    _set_session_cookie(email)
+    # Defer cookie write to the next render so the JS component has a
+    # chance to actually execute (st.rerun() would interrupt it).
+    st.session_state["sh_needs_cookie_set"] = email
     log_access(email, action="login")
     st.rerun()
 
@@ -241,6 +243,11 @@ def require_login() -> dict:
         st.session_state.pop(SESSION_KEY, None)
         st.error("Your access has been revoked. Please sign in again.")
         st.stop()
+
+    # Write the session cookie on the first dashboard render after login.
+    pending = st.session_state.pop("sh_needs_cookie_set", None)
+    if pending:
+        _set_session_cookie(pending)
 
     return {
         "email": email,
