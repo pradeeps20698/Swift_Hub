@@ -60,8 +60,15 @@ DASH_BY_KEY = {d["key"]: d for d in DASHBOARDS}
 user = require_login()
 sidebar_user_box()
 
-st.title("🚛 Swift Hub")
-st.caption(f"Welcome, {user['name'] or user['email']}  ·  role: {user['role']}")
+st.markdown(
+    "<h1 style='text-align:center;margin-bottom:0'>🚛 Swift Hub</h1>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    f"<p style='text-align:center;color:#888;margin-top:4px'>"
+    f"Welcome, {user['name'] or user['email']} · role: {user['role']}</p>",
+    unsafe_allow_html=True,
+)
 
 st.divider()
 
