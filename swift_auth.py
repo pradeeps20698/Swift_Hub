@@ -1,67 +1,100 @@
 """Email-OTP auth gate for Swift Hub.
 
-Flow:
-  1. User enters their email.
-  2. We generate a 6-digit code, store its hash in Postgres, and email it.
-     (If SMTP isn't configured, we show the code on-screen for dev/testing.)
-  3. User enters the code.
-  4. On success, we look up / auto-provision the user in swift_hub_users
-     and set st.session_state["sh_user_email"] for the rest of the session.
-
-Domain restrictions and blocked users still apply.
+Login persistence:
+  - On successful OTP verify, we create a DB-backed session
+    (`swift_hub_sessions`). Only the SHA-256 hash of the random token
+    is stored server-side; the raw token lives only in the user's browser.
+  - The raw token is persisted in browser localStorage via
+    `streamlit-local-storage`. As a fallback (e.g. iframe sandbox blocks
+    localStorage) it is also written to a `?s=` query param so refresh
+    still works without exposing user identity in the URL.
+  - Sessions are revocable: Sign Out marks the row revoked; admins can
+    revoke any active session from the DB.
 """
 from __future__ import annotations
 
 import re
 
 import streamlit as st
+from streamlit_local_storage import LocalStorage
 
 from swift_db import (
     consume_login_code,
     count_users,
+    create_session,
     get_user,
     init_schema,
     log_access,
+    lookup_session,
+    revoke_session,
     store_login_code,
     upsert_user,
 )
 from swift_otp import generate_code, hash_code, send_code, smtp_configured
-from swift_session import make_token, verify_token
 
-QP_TOKEN = "t"
+LS_KEY = "sh_sid"
+QP_KEY = "s"
+SESSION_KEY = "sh_user_email"
+RAW_TOKEN_KEY = "sh_raw_token"
 
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
-SESSION_KEY = "sh_user_email"
 
 
-def _set_session_token(email: str) -> None:
-    """Persist login by writing a signed token to the URL query string.
-    Browsers preserve query params across refresh, so this survives reloads
-    without needing cookies / JS components."""
+# ---------------------------------------------------------------------------
+# Session-token storage (browser side)
+# ---------------------------------------------------------------------------
+def _local_storage() -> LocalStorage:
+    if "sh_local_storage" not in st.session_state:
+        st.session_state["sh_local_storage"] = LocalStorage()
+    return st.session_state["sh_local_storage"]
+
+
+def _read_token_from_browser() -> str | None:
+    """Try localStorage first, then query-param fallback."""
+    token: str | None = None
     try:
-        st.query_params[QP_TOKEN] = make_token(email)
+        token = _local_storage().getItem(LS_KEY)
+    except Exception:
+        token = None
+    if token:
+        return token
+    try:
+        qp = st.query_params.get(QP_KEY)
+        if qp:
+            return qp
+    except Exception:
+        pass
+    return None
+
+
+def _write_token_to_browser(raw_token: str) -> None:
+    try:
+        _local_storage().setItem(LS_KEY, raw_token, key="sh_ls_set")
+    except Exception:
+        pass
+    # Also stash in URL as a reliable fallback for environments where
+    # localStorage isn't writable from the iframe.
+    try:
+        st.query_params[QP_KEY] = raw_token
     except Exception:
         pass
 
 
-def _clear_session_token() -> None:
+def _clear_token_from_browser() -> None:
     try:
-        if QP_TOKEN in st.query_params:
-            del st.query_params[QP_TOKEN]
+        _local_storage().deleteItem(LS_KEY, key="sh_ls_del")
+    except Exception:
+        pass
+    try:
+        if QP_KEY in st.query_params:
+            del st.query_params[QP_KEY]
     except Exception:
         pass
 
 
-def _restore_from_token() -> str | None:
-    try:
-        token = st.query_params.get(QP_TOKEN)
-    except Exception:
-        return None
-    if not token:
-        return None
-    return verify_token(token)
-
-
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
 def _app_cfg():
     try:
         return st.secrets["app"]
@@ -124,7 +157,6 @@ def _request_code_ui() -> None:
         st.error(f"Only {allowed} accounts are allowed.")
         return
 
-    # Generate, store, send
     code = generate_code()
     try:
         store_login_code(email, hash_code(code), ttl_seconds=600)
@@ -137,7 +169,6 @@ def _request_code_ui() -> None:
     if sent:
         st.success(f"A 6-digit login code has been sent to {email}. It expires in 10 minutes.")
     else:
-        # Dev / fallback mode
         if not smtp_configured():
             st.warning(
                 "SMTP not configured yet — showing code on screen for testing. "
@@ -183,7 +214,6 @@ def _verify_code_ui() -> None:
         st.error("Invalid or expired code. Request a new one.")
         return
 
-    # Success — auto-provision user if needed
     row = get_user(email)
     if row is None:
         upsert_user(email=email, name="", role="user")
@@ -193,9 +223,12 @@ def _verify_code_ui() -> None:
         st.error(f"Access for {email} has been revoked.")
         return
 
+    # Create a server-side session and hand the raw token to the browser
+    raw_token = create_session(email)
     st.session_state[SESSION_KEY] = email
+    st.session_state[RAW_TOKEN_KEY] = raw_token
     st.session_state.pop("sh_pending_email", None)
-    _set_session_token(email)
+    _write_token_to_browser(raw_token)
     log_access(email, action="login")
     st.rerun()
 
@@ -209,16 +242,30 @@ def require_login() -> dict:
         st.stop()
 
     email = st.session_state.get(SESSION_KEY)
+
     if not email:
-        # Try to restore from a signed token in the URL query string
-        token_email = _restore_from_token()
-        if token_email:
-            row = get_user(token_email)
-            if row and not row["is_blocked"]:
-                st.session_state[SESSION_KEY] = token_email
-                email = token_email
+        # Try to restore from a previously-issued session token in the browser
+        raw_token = _read_token_from_browser()
+        if raw_token:
+            session_email = lookup_session(raw_token)
+            if session_email:
+                row = get_user(session_email)
+                if row and not row["is_blocked"]:
+                    st.session_state[SESSION_KEY] = session_email
+                    st.session_state[RAW_TOKEN_KEY] = raw_token
+                    email = session_email
+                    # Migrate URL fallback into localStorage and clean URL
+                    _write_token_to_browser(raw_token)
+                else:
+                    revoke_session(raw_token)
+                    _clear_token_from_browser()
             else:
-                _clear_session_token()
+                _clear_token_from_browser()
+        elif not st.session_state.get("sh_ls_checked"):
+            # First load: localStorage component returns None on initial
+            # render; rerun once so the JS roundtrip can complete.
+            st.session_state["sh_ls_checked"] = True
+            st.rerun()
 
     if not email:
         if st.session_state.get("sh_pending_email"):
@@ -229,7 +276,11 @@ def require_login() -> dict:
 
     row = get_user(email)
     if row is None or row["is_blocked"]:
+        raw = st.session_state.pop(RAW_TOKEN_KEY, None)
+        if raw:
+            revoke_session(raw)
         st.session_state.pop(SESSION_KEY, None)
+        _clear_token_from_browser()
         st.error("Your access has been revoked. Please sign in again.")
         st.stop()
 
@@ -250,6 +301,9 @@ def sidebar_user_box() -> None:
         st.caption(email)
         st.caption(f"Role: `{row.get('role', 'user')}`")
         if st.button("Sign out", use_container_width=True):
+            raw = st.session_state.pop(RAW_TOKEN_KEY, None)
+            if raw:
+                revoke_session(raw)
             st.session_state.pop(SESSION_KEY, None)
-            _clear_session_token()
+            _clear_token_from_browser()
             st.rerun()

@@ -57,6 +57,20 @@ def init_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_swift_hub_access_logs_email
               ON swift_hub_access_logs (email);
 
+            CREATE TABLE IF NOT EXISTS swift_hub_sessions (
+                id          BIGSERIAL PRIMARY KEY,
+                token_hash  TEXT NOT NULL UNIQUE,
+                email       TEXT NOT NULL,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_seen   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at  TIMESTAMPTZ NOT NULL,
+                revoked     BOOLEAN NOT NULL DEFAULT FALSE
+            );
+            CREATE INDEX IF NOT EXISTS idx_swift_hub_sessions_email
+              ON swift_hub_sessions (email);
+            CREATE INDEX IF NOT EXISTS idx_swift_hub_sessions_token
+              ON swift_hub_sessions (token_hash);
+
             CREATE TABLE IF NOT EXISTS swift_hub_login_codes (
                 email       TEXT NOT NULL,
                 code_hash   TEXT NOT NULL,
@@ -244,6 +258,92 @@ def consume_login_code(email: str, code_hash: str) -> bool:
             (email, code_hash),
         )
         return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Sessions (DB-backed, server-revocable)
+# ---------------------------------------------------------------------------
+import hashlib as _hashlib
+import secrets as _secrets
+
+
+def _hash_token(raw: str) -> str:
+    return _hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def create_session(email: str, ttl_seconds: int = 7 * 24 * 60 * 60) -> str:
+    """Create a new session and return the raw token to give the client.
+    Only the SHA-256 hash is stored server-side."""
+    email = email.lower().strip()
+    raw = _secrets.token_urlsafe(32)
+    with get_conn().cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO swift_hub_sessions (token_hash, email, expires_at)
+            VALUES (%s, %s, NOW() + (%s || ' seconds')::interval)
+            """,
+            (_hash_token(raw), email, str(ttl_seconds)),
+        )
+    return raw
+
+
+def lookup_session(raw_token: str) -> str | None:
+    """Return the email for a valid (not expired, not revoked) session, else None.
+    Touches last_seen on success."""
+    if not raw_token:
+        return None
+    with get_conn().cursor() as cur:
+        cur.execute(
+            """
+            UPDATE swift_hub_sessions
+               SET last_seen = NOW()
+             WHERE token_hash = %s
+               AND revoked = FALSE
+               AND expires_at > NOW()
+         RETURNING email
+            """,
+            (_hash_token(raw_token),),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def revoke_session(raw_token: str) -> None:
+    if not raw_token:
+        return
+    with get_conn().cursor() as cur:
+        cur.execute(
+            "UPDATE swift_hub_sessions SET revoked = TRUE WHERE token_hash = %s",
+            (_hash_token(raw_token),),
+        )
+
+
+def revoke_all_sessions_for(email: str) -> int:
+    email = email.lower().strip()
+    with get_conn().cursor() as cur:
+        cur.execute(
+            "UPDATE swift_hub_sessions SET revoked = TRUE WHERE email = %s AND revoked = FALSE",
+            (email,),
+        )
+        return cur.rowcount
+
+
+def list_active_sessions() -> list[dict]:
+    with get_conn().cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT id, email, created_at, last_seen, expires_at
+              FROM swift_hub_sessions
+             WHERE revoked = FALSE AND expires_at > NOW()
+             ORDER BY last_seen DESC
+            """
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def revoke_session_by_id(session_id: int) -> None:
+    with get_conn().cursor() as cur:
+        cur.execute("UPDATE swift_hub_sessions SET revoked = TRUE WHERE id = %s", (session_id,))
 
 
 def recent_logs(limit: int = 200) -> list[dict]:
