@@ -39,7 +39,9 @@ def _block_with_hub_redirect() -> None:
                        BlinkMacSystemFont,sans-serif;text-align:center;
                        padding-top:80px;margin:0">
             <h1 style="font-size:38px">🔒 Access via Swift Hub</h1>
-            <p style="color:#888;font-size:18px">Redirecting to Swift Hub…</p>
+            <p style="color:#888;font-size:18px">
+              This dashboard can only be opened from Swift Hub.
+            </p>
             <p style="margin-top:32px">
               <button id="goto"
                 style="background:#ff4b4b;color:#fff;border:none;
@@ -50,15 +52,13 @@ def _block_with_hub_redirect() -> None:
             </p>
             <script>
               var URL = "{SWIFT_HUB_URL}";
-              function goHub() {{
+              document.getElementById("goto").addEventListener("click", function() {{
                 try {{ window.top.location.href = URL; }}
                 catch(e) {{
                   try {{ window.parent.location.href = URL; }}
                   catch(e2) {{ window.location.href = URL; }}
                 }}
-              }}
-              document.getElementById("goto").addEventListener("click", goHub);
-              setTimeout(goHub, 400);
+              }});
             </script>
           </body>
         </html>
