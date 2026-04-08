@@ -12,6 +12,8 @@ child dashboard their role permits.
 """
 from __future__ import annotations
 
+import time
+
 import streamlit as st
 
 # Reuse the same OTP gate from swift_auth so behavior stays in sync.
@@ -44,5 +46,16 @@ def require_dashboard_access(dashboard_key: str) -> dict:
     if not st.session_state.get(f"_logged_open_{dashboard_key}"):
         log_access(user["email"], action="open", dashboard_key=dashboard_key)
         st.session_state[f"_logged_open_{dashboard_key}"] = True
+
+    # Heartbeat: log activity every 10 minutes while the user is interacting.
+    # Streamlit reruns this code on every widget interaction, so as long as
+    # the user keeps clicking, heartbeats keep flowing.
+    HEARTBEAT_INTERVAL = 10 * 60  # seconds
+    beat_key = f"_last_heartbeat_{dashboard_key}"
+    last_beat = st.session_state.get(beat_key, 0)
+    now = time.time()
+    if now - last_beat >= HEARTBEAT_INTERVAL:
+        log_access(user["email"], action="heartbeat", dashboard_key=dashboard_key)
+        st.session_state[beat_key] = now
 
     return user

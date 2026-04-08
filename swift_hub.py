@@ -232,7 +232,10 @@ if is_admin(user["email"]):
                 key="activity_date",
             )
 
-            day = adf[(adf["date"] == sel_date) & (adf["action"] == "open")]
+            day = adf[
+                (adf["date"] == sel_date)
+                & (adf["action"].isin(["open", "heartbeat"]))
+            ]
             all_emails = sorted({u["email"] for u in list_users()})
             dash_keys = [d["key"] for d in DASHBOARDS]
             dash_titles = {d["key"]: d["title"] for d in DASHBOARDS}
