@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 from swift_auth import is_admin, require_login, sidebar_user_box
 from swift_db import (
@@ -67,10 +66,14 @@ st.caption(f"Welcome, {user['name'] or user['email']}  ·  role: {user['role']}"
 st.divider()
 
 # ---- Tile rendering (filtered by role) ---------------------------------------
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_permitted(role: str) -> set[str]:
+    return get_permitted_dashboards(role)
+
 if user["role"] == "admin":
     visible = DASHBOARDS
 else:
-    permitted = get_permitted_dashboards(user["role"])
+    permitted = _cached_permitted(user["role"])
     visible = [d for d in DASHBOARDS if d["key"] in permitted]
 
 if not visible:
@@ -82,22 +85,13 @@ else:
             with st.container(border=True):
                 st.subheader(f"{d['icon']} {d['title']}")
                 st.write(d["description"])
-                if st.button(
-                    "Open",
-                    key=f"open_{d['key']}",
-                    use_container_width=True,
-                    type="primary",
-                ):
-                    log_access(user["email"], action="open", dashboard_key=d["key"])
-                    # Pass the raw session token to the child dashboard so it
-                    # can auto-login (single sign-on across subdomains).
-                    raw_token = st.session_state.get("sh_raw_token", "")
-                    sep = "&" if "?" in d["url"] else "?"
-                    target = f"{d['url']}{sep}s={raw_token}" if raw_token else d["url"]
-                    components.html(
-                        f"<script>window.open('{target}', '_blank');</script>",
-                        height=0,
-                    )
+                # Real anchor (link_button) — instant, no Streamlit rerun.
+                # The child dashboard logs its own 'open' event on landing,
+                # so we don't lose tracking by skipping the hub-side click log.
+                _raw = st.session_state.get("sh_raw_token", "")
+                _sep = "&" if "?" in d["url"] else "?"
+                _target = f"{d['url']}{_sep}s={_raw}" if _raw else d["url"]
+                st.link_button("Open", _target, use_container_width=True, type="primary")
 
 # ---- Admin section -----------------------------------------------------------
 if is_admin(user["email"]):
