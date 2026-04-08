@@ -29,16 +29,18 @@ SWIFT_HUB_URL = "https://swiftapp-838rpjkwfx8t2uprdmffsd.streamlit.app/"
 
 
 def _block_with_hub_redirect() -> None:
-    """Show a 'go to Swift Hub' message instead of an OTP login screen."""
+    """Redirect the top-level browser tab to Swift Hub."""
+    import streamlit.components.v1 as components
+
     st.markdown(
         f"""
         <div style='text-align:center;margin-top:80px'>
           <h1>🔒 Access via Swift Hub</h1>
           <p style='color:#888;font-size:18px'>
-            This dashboard can only be opened from Swift Hub.
+            Redirecting to Swift Hub…
           </p>
           <p style='margin-top:32px'>
-            <a href='{SWIFT_HUB_URL}' target='_self'
+            <a href='{SWIFT_HUB_URL}' target='_top'
                style='background:#ff4b4b;color:#fff;padding:12px 28px;
                       border-radius:8px;text-decoration:none;font-weight:600'>
               Go to Swift Hub →
@@ -47,6 +49,18 @@ def _block_with_hub_redirect() -> None:
         </div>
         """,
         unsafe_allow_html=True,
+    )
+    # Break out of Streamlit's iframe and navigate the top window.
+    components.html(
+        f"""
+        <script>
+          setTimeout(function() {{
+            try {{ window.top.location.href = "{SWIFT_HUB_URL}"; }}
+            catch(e) {{ window.location.href = "{SWIFT_HUB_URL}"; }}
+          }}, 800);
+        </script>
+        """,
+        height=0,
     )
     st.stop()
 
