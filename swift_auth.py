@@ -50,15 +50,22 @@ def _local_storage() -> LocalStorage:
     return st.session_state["sh_local_storage"]
 
 
+def _is_child_mode() -> bool:
+    return bool(st.session_state.get("sh_child_mode"))
+
+
 def _read_token_from_browser() -> str | None:
-    """Try localStorage first, then query-param fallback."""
-    token: str | None = None
-    try:
-        token = _local_storage().getItem(LS_KEY)
-    except Exception:
-        token = None
-    if token:
-        return token
+    """Read the session token. In child-app mode we ONLY accept the URL
+    query param (passed from Swift Hub on Open), never localStorage,
+    so closing the tab loses the login and the user must re-open from
+    Swift Hub. In Swift Hub itself we also read localStorage."""
+    if not _is_child_mode():
+        try:
+            token = _local_storage().getItem(LS_KEY)
+            if token:
+                return token
+        except Exception:
+            pass
     try:
         qp = st.query_params.get(QP_KEY)
         if qp:
@@ -69,12 +76,19 @@ def _read_token_from_browser() -> str | None:
 
 
 def _write_token_to_browser(raw_token: str) -> None:
+    if _is_child_mode():
+        # Child apps must NOT persist the token anywhere — login dies
+        # with the tab.
+        try:
+            if QP_KEY in st.query_params:
+                del st.query_params[QP_KEY]
+        except Exception:
+            pass
+        return
     try:
         _local_storage().setItem(LS_KEY, raw_token, key="sh_ls_set")
     except Exception:
         pass
-    # Also stash in URL as a reliable fallback for environments where
-    # localStorage isn't writable from the iframe.
     try:
         st.query_params[QP_KEY] = raw_token
     except Exception:
@@ -82,10 +96,11 @@ def _write_token_to_browser(raw_token: str) -> None:
 
 
 def _clear_token_from_browser() -> None:
-    try:
-        _local_storage().deleteItem(LS_KEY, key="sh_ls_del")
-    except Exception:
-        pass
+    if not _is_child_mode():
+        try:
+            _local_storage().deleteItem(LS_KEY, key="sh_ls_del")
+        except Exception:
+            pass
     try:
         if QP_KEY in st.query_params:
             del st.query_params[QP_KEY]
