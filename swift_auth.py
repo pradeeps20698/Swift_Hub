@@ -131,15 +131,27 @@ def _bootstrap_admins() -> list[str]:
     return [e.lower() for e in (_app_cfg().get("bootstrap_admins") or [])]
 
 
-def _ensure_bootstrap() -> None:
+@st.cache_resource(show_spinner=False)
+def _ensure_bootstrap_once() -> bool:
+    """Run schema bootstrap exactly once per worker process."""
     init_schema()
     if count_users() == 0:
         for email in _bootstrap_admins():
             upsert_user(email=email, role="admin")
+    return True
+
+
+def _ensure_bootstrap() -> None:
+    _ensure_bootstrap_once()
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_get_user(email: str) -> dict | None:
+    return get_user(email)
 
 
 def is_admin(email: str) -> bool:
-    u = get_user(email)
+    u = _cached_get_user(email)
     return bool(u and u["role"] == "admin" and not u["is_blocked"])
 
 
@@ -265,7 +277,7 @@ def require_login() -> dict:
         if raw_token:
             session_email = lookup_session(raw_token)
             if session_email:
-                row = get_user(session_email)
+                row = _cached_get_user(session_email)
                 if row and not row["is_blocked"]:
                     st.session_state[SESSION_KEY] = session_email
                     st.session_state[RAW_TOKEN_KEY] = raw_token
@@ -290,7 +302,7 @@ def require_login() -> dict:
             _request_code_ui()
         st.stop()
 
-    row = get_user(email)
+    row = _cached_get_user(email)
     if row is None or row["is_blocked"]:
         raw = st.session_state.pop(RAW_TOKEN_KEY, None)
         if raw:
@@ -311,7 +323,7 @@ def sidebar_user_box() -> None:
     email = st.session_state.get(SESSION_KEY)
     if not email:
         return
-    row = get_user(email) or {}
+    row = _cached_get_user(email) or {}
     with st.sidebar:
         st.markdown(f"**{row.get('name') or email}**")
         st.caption(email)

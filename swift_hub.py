@@ -119,6 +119,7 @@ if is_admin(user["email"]):
                             role=new_role.strip().lower() or "user",
                             is_blocked=False,
                         )
+                        st.cache_data.clear()
                         st.success(f"Saved {new_email} as {new_role}.")
                         st.rerun()
 
@@ -149,20 +150,24 @@ if is_admin(user["email"]):
                     role=new_target_role.strip().lower() or "user",
                     is_blocked=target_row["is_blocked"],
                 )
+                st.cache_data.clear()
                 st.success(f"{target} role -> {new_target_role}")
                 st.rerun()
             if target_row["is_blocked"]:
                 if a2.button("Unblock"):
                     set_blocked(target, False)
+                    st.cache_data.clear()
                     st.success(f"Unblocked {target}.")
                     st.rerun()
             else:
                 if a2.button("Block", disabled=is_self):
                     set_blocked(target, True)
+                    st.cache_data.clear()
                     st.success(f"Blocked {target}.")
                     st.rerun()
             if a3.button("Delete", disabled=is_self):
                 delete_user(target)
+                st.cache_data.clear()
                 st.success(f"Deleted {target}.")
                 st.rerun()
 
@@ -186,6 +191,7 @@ if is_admin(user["email"]):
                 )
                 if st.button("Save", key=f"save_perms_{role}"):
                     set_role_permissions(role, selected)
+                    st.cache_data.clear()
                     st.success(f"Updated permissions for {role}.")
                     st.rerun()
 
