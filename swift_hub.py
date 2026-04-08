@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from swift_auth import is_admin, require_login, sidebar_user_box
 from swift_db import (
@@ -81,14 +82,25 @@ else:
             with st.container(border=True):
                 st.subheader(f"{d['icon']} {d['title']}")
                 st.write(d["description"])
-                # Use a real link_button + log click via query param fallback isn't reliable;
-                # log on render of an "Open" button click.
-                st.link_button("Open", d["url"], use_container_width=True)
+                if st.button(
+                    "Open",
+                    key=f"open_{d['key']}",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    log_access(user["email"], action="open", dashboard_key=d["key"])
+                    # Open the dashboard in a new tab via injected JS
+                    components.html(
+                        f"<script>window.open('{d['url']}', '_blank');</script>",
+                        height=0,
+                    )
 
 # ---- Admin section -----------------------------------------------------------
 if is_admin(user["email"]):
     st.divider()
-    tab_users, tab_perms, tab_logs = st.tabs(["👤 Users", "🔐 Permissions", "📜 Access logs"])
+    tab_users, tab_perms, tab_logs, tab_activity = st.tabs(
+        ["👤 Users", "🔐 Permissions", "📜 Access logs", "📊 Daily activity"]
+    )
 
     # --- Users tab ------------------------------------------------------------
     with tab_users:
@@ -196,6 +208,61 @@ if is_admin(user["email"]):
                 use_container_width=True,
                 hide_index=True,
             )
+
+    # --- Daily activity tab ---------------------------------------------------
+    with tab_activity:
+        st.caption(
+            "Per-day report of which dashboards each user opened. "
+            "✅ = opened that day, — = not opened."
+        )
+        all_logs = recent_logs(limit=10000)
+        if not all_logs:
+            st.info("No activity yet.")
+        else:
+            adf = pd.DataFrame(all_logs)
+            adf["ts"] = pd.to_datetime(adf["ts"], utc=True).dt.tz_convert("Asia/Kolkata")
+            adf["date"] = adf["ts"].dt.date
+
+            min_d, max_d = adf["date"].min(), adf["date"].max()
+            sel_date = st.date_input(
+                "Date",
+                value=max_d,
+                min_value=min_d,
+                max_value=max_d,
+                key="activity_date",
+            )
+
+            day = adf[(adf["date"] == sel_date) & (adf["action"] == "open")]
+            all_emails = sorted({u["email"] for u in list_users()})
+            dash_keys = [d["key"] for d in DASHBOARDS]
+            dash_titles = {d["key"]: d["title"] for d in DASHBOARDS}
+
+            if day.empty:
+                opened = pd.DataFrame(0, index=all_emails, columns=dash_keys)
+            else:
+                opened = (
+                    day.groupby(["email", "dashboard_key"]).size().unstack(fill_value=0)
+                )
+                opened = opened.reindex(index=all_emails, columns=dash_keys, fill_value=0)
+
+            display = opened.applymap(lambda n: "✅" if n > 0 else "—")
+            display.columns = [dash_titles.get(k, k) for k in display.columns]
+            display.insert(0, "User", display.index)
+            display = display.reset_index(drop=True)
+            st.dataframe(display, use_container_width=True, hide_index=True)
+
+            with st.expander("All events on this day"):
+                day_all = adf[adf["date"] == sel_date].copy()
+                if day_all.empty:
+                    st.info("No events on this day.")
+                else:
+                    day_all["ts"] = day_all["ts"].dt.strftime("%Y-%m-%d %H:%M:%S")
+                    st.dataframe(
+                        day_all[["ts", "email", "action", "dashboard_key"]]
+                        .sort_values("ts", ascending=False),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
 st.divider()
 st.caption("© Swift Roadlink Pvt. Ltd.")
