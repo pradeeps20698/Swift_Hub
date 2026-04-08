@@ -26,6 +26,7 @@ from swift_db import (
     init_schema,
     log_access,
     lookup_session,
+    revoke_all_sessions_for,
     revoke_session,
     store_login_code,
     upsert_user,
@@ -242,6 +243,17 @@ def require_login() -> dict:
         st.stop()
 
     email = st.session_state.get(SESSION_KEY)
+    raw_token = st.session_state.get(RAW_TOKEN_KEY)
+
+    # Always re-validate the session against the DB on every render so a
+    # revoked session (e.g. via Sign Out from another tab) kicks the user
+    # out of any tab on its next interaction.
+    if email and raw_token:
+        if not lookup_session(raw_token):
+            st.session_state.pop(SESSION_KEY, None)
+            st.session_state.pop(RAW_TOKEN_KEY, None)
+            _clear_token_from_browser()
+            email = None
 
     if not email:
         # Try to restore from a previously-issued session token in the browser
@@ -301,9 +313,13 @@ def sidebar_user_box() -> None:
         st.caption(email)
         st.caption(f"Role: `{row.get('role', 'user')}`")
         if st.button("Sign out", use_container_width=True):
-            raw = st.session_state.pop(RAW_TOKEN_KEY, None)
-            if raw:
-                revoke_session(raw)
+            # Revoke ALL active sessions for this user so every open
+            # dashboard tab gets kicked out on its next interaction.
+            try:
+                revoke_all_sessions_for(email)
+            except Exception:
+                pass
+            st.session_state.pop(RAW_TOKEN_KEY, None)
             st.session_state.pop(SESSION_KEY, None)
             _clear_token_from_browser()
             st.rerun()
