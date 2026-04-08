@@ -34,9 +34,10 @@ EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 SESSION_KEY = "sh_user_email"
 
 
-@st.cache_resource
 def _cookie_manager() -> stx.CookieManager:
-    return stx.CookieManager(key="sh_cookie_mgr")
+    if "sh_cookie_mgr" not in st.session_state:
+        st.session_state["sh_cookie_mgr"] = stx.CookieManager(key="sh_cookie_mgr")
+    return st.session_state["sh_cookie_mgr"]
 
 
 def _set_session_cookie(email: str) -> None:
