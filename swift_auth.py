@@ -214,6 +214,11 @@ def require_login() -> dict:
 
     email = st.session_state.get(SESSION_KEY)
     if not email:
+        # Force the cookie component to render so JS can fetch cookies
+        try:
+            _cookie_manager().get_all()
+        except Exception:
+            pass
         # Try to restore from a previously-issued signed cookie
         cookie_email = _restore_from_cookie()
         if cookie_email:
@@ -223,6 +228,11 @@ def require_login() -> dict:
                 email = cookie_email
             else:
                 _clear_session_cookie()
+        elif not st.session_state.get("sh_cookie_checked"):
+            # First load after refresh: the JS cookie component hasn't
+            # populated yet. Rerun once to give it a chance.
+            st.session_state["sh_cookie_checked"] = True
+            st.rerun()
 
     if not email:
         if st.session_state.get("sh_pending_email"):
