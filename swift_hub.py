@@ -186,7 +186,11 @@ if is_admin(user["email"]):
             st.info("No access logs yet.")
         else:
             ldf = pd.DataFrame(logs)
-            ldf["ts"] = pd.to_datetime(ldf["ts"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+            ldf["ts"] = (
+                pd.to_datetime(ldf["ts"], utc=True)
+                .dt.tz_convert("Asia/Kolkata")
+                .dt.strftime("%Y-%m-%d %H:%M:%S")
+            )
             st.dataframe(
                 ldf[["ts", "email", "action", "dashboard_key"]],
                 use_container_width=True,

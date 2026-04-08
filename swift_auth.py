@@ -13,7 +13,9 @@ Domain restrictions and blocked users still apply.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 
+import extra_streamlit_components as stx
 import streamlit as st
 
 from swift_db import (
@@ -26,9 +28,41 @@ from swift_db import (
     upsert_user,
 )
 from swift_otp import generate_code, hash_code, send_code, smtp_configured
+from swift_session import COOKIE_NAME, DEFAULT_TTL_SECONDS, make_token, verify_token
 
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 SESSION_KEY = "sh_user_email"
+
+
+@st.cache_resource
+def _cookie_manager() -> stx.CookieManager:
+    return stx.CookieManager(key="sh_cookie_mgr")
+
+
+def _set_session_cookie(email: str) -> None:
+    token = make_token(email)
+    expires = datetime.now(timezone.utc) + timedelta(seconds=DEFAULT_TTL_SECONDS)
+    try:
+        _cookie_manager().set(COOKIE_NAME, token, expires_at=expires, key="sh_set_cookie")
+    except Exception:
+        pass
+
+
+def _clear_session_cookie() -> None:
+    try:
+        _cookie_manager().delete(COOKIE_NAME, key="sh_del_cookie")
+    except Exception:
+        pass
+
+
+def _restore_from_cookie() -> str | None:
+    try:
+        token = _cookie_manager().get(COOKIE_NAME)
+    except Exception:
+        return None
+    if not token:
+        return None
+    return verify_token(token)
 
 
 def _app_cfg():
@@ -164,6 +198,7 @@ def _verify_code_ui() -> None:
 
     st.session_state[SESSION_KEY] = email
     st.session_state.pop("sh_pending_email", None)
+    _set_session_cookie(email)
     log_access(email, action="login")
     st.rerun()
 
@@ -177,6 +212,17 @@ def require_login() -> dict:
         st.stop()
 
     email = st.session_state.get(SESSION_KEY)
+    if not email:
+        # Try to restore from a previously-issued signed cookie
+        cookie_email = _restore_from_cookie()
+        if cookie_email:
+            row = get_user(cookie_email)
+            if row and not row["is_blocked"]:
+                st.session_state[SESSION_KEY] = cookie_email
+                email = cookie_email
+            else:
+                _clear_session_cookie()
+
     if not email:
         if st.session_state.get("sh_pending_email"):
             _verify_code_ui()
@@ -208,4 +254,5 @@ def sidebar_user_box() -> None:
         st.caption(f"Role: `{row.get('role', 'user')}`")
         if st.button("Sign out", use_container_width=True):
             st.session_state.pop(SESSION_KEY, None)
+            _clear_session_cookie()
             st.rerun()
