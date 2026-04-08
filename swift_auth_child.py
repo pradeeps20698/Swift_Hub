@@ -31,26 +31,23 @@ SWIFT_HUB_URL = "https://swiftapp-838rpjkwfx8t2uprdmffsd.streamlit.app/"
 def _block_with_hub_redirect() -> None:
     """Show an 'Access via Swift Hub' page with a working link."""
     st.markdown(
-        f"""
+        """
         <div style="text-align:center;margin-top:80px">
           <h1 style="font-size:38px">🔒 Access via Swift Hub</h1>
           <p style="color:#888;font-size:18px">
             This dashboard can only be opened from Swift Hub.
           </p>
-          <p style="margin-top:32px">
-            <a href="{SWIFT_HUB_URL}" target="_blank" rel="noopener"
-               style="background:#ff4b4b;color:#fff;text-decoration:none;
-                      padding:14px 36px;border-radius:8px;font-size:16px;
-                      font-weight:600;display:inline-block">
-              Open Swift Hub →
-            </a>
-          </p>
-          <p style="margin-top:16px;font-size:13px;color:#666">
-            <a href="{SWIFT_HUB_URL}" target="_blank" rel="noopener"
-               style="color:#888;text-decoration:underline">{SWIFT_HUB_URL}</a>
-          </p>
         </div>
         """,
+        unsafe_allow_html=True,
+    )
+    _l, c, _r = st.columns([1, 1, 1])
+    with c:
+        st.link_button("Go to Swift Hub →", SWIFT_HUB_URL, use_container_width=True)
+    st.markdown(
+        f"<p style='text-align:center;margin-top:16px;font-size:13px;color:#666'>"
+        f"<a href='{SWIFT_HUB_URL}' target='_blank' rel='noopener' "
+        f"style='color:#888;text-decoration:underline'>{SWIFT_HUB_URL}</a></p>",
         unsafe_allow_html=True,
     )
     st.stop()
