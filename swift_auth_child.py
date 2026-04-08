@@ -33,11 +33,6 @@ def require_dashboard_access(dashboard_key: str) -> dict:
         st.error(f"Database unavailable: {e}")
         st.stop()
 
-    # Mark this as a child-app session: swift_auth will skip localStorage
-    # so closing the tab loses the login and the user must re-open from
-    # Swift Hub.
-    st.session_state["sh_child_mode"] = True
-
     user = _hub_require_login()  # forces OTP gate, returns dict with email/role
 
     if not user_can_access(user["email"], dashboard_key):
