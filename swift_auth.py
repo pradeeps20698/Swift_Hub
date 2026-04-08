@@ -15,7 +15,6 @@ from __future__ import annotations
 import re
 
 import streamlit as st
-from streamlit_cookies_controller import CookieController
 
 from swift_db import (
     consume_login_code,
@@ -27,38 +26,35 @@ from swift_db import (
     upsert_user,
 )
 from swift_otp import generate_code, hash_code, send_code, smtp_configured
-from swift_session import COOKIE_NAME, DEFAULT_TTL_SECONDS, make_token, verify_token
+from swift_session import make_token, verify_token
+
+QP_TOKEN = "t"
 
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 SESSION_KEY = "sh_user_email"
 
 
-def _cookie_controller() -> CookieController:
-    if "sh_cookie_ctrl" not in st.session_state:
-        st.session_state["sh_cookie_ctrl"] = CookieController(key="sh_cookie_ctrl")
-    return st.session_state["sh_cookie_ctrl"]
-
-
-def _set_session_cookie(email: str) -> None:
-    token = make_token(email)
+def _set_session_token(email: str) -> None:
+    """Persist login by writing a signed token to the URL query string.
+    Browsers preserve query params across refresh, so this survives reloads
+    without needing cookies / JS components."""
     try:
-        _cookie_controller().set(
-            COOKIE_NAME, token, max_age=DEFAULT_TTL_SECONDS, path="/"
-        )
+        st.query_params[QP_TOKEN] = make_token(email)
     except Exception:
         pass
 
 
-def _clear_session_cookie() -> None:
+def _clear_session_token() -> None:
     try:
-        _cookie_controller().remove(COOKIE_NAME, path="/")
+        if QP_TOKEN in st.query_params:
+            del st.query_params[QP_TOKEN]
     except Exception:
         pass
 
 
-def _restore_from_cookie() -> str | None:
+def _restore_from_token() -> str | None:
     try:
-        token = _cookie_controller().get(COOKIE_NAME)
+        token = st.query_params.get(QP_TOKEN)
     except Exception:
         return None
     if not token:
@@ -199,9 +195,7 @@ def _verify_code_ui() -> None:
 
     st.session_state[SESSION_KEY] = email
     st.session_state.pop("sh_pending_email", None)
-    # Defer cookie write to the next render so the JS component has a
-    # chance to actually execute (st.rerun() would interrupt it).
-    st.session_state["sh_needs_cookie_set"] = email
+    _set_session_token(email)
     log_access(email, action="login")
     st.rerun()
 
@@ -216,20 +210,15 @@ def require_login() -> dict:
 
     email = st.session_state.get(SESSION_KEY)
     if not email:
-        # Try to restore from a previously-issued signed cookie
-        cookie_email = _restore_from_cookie()
-        if cookie_email:
-            row = get_user(cookie_email)
+        # Try to restore from a signed token in the URL query string
+        token_email = _restore_from_token()
+        if token_email:
+            row = get_user(token_email)
             if row and not row["is_blocked"]:
-                st.session_state[SESSION_KEY] = cookie_email
-                email = cookie_email
+                st.session_state[SESSION_KEY] = token_email
+                email = token_email
             else:
-                _clear_session_cookie()
-        elif not st.session_state.get("sh_cookie_checked"):
-            # First load: JS cookie component may not have populated yet.
-            # Rerun once to give it a chance before showing the login UI.
-            st.session_state["sh_cookie_checked"] = True
-            st.rerun()
+                _clear_session_token()
 
     if not email:
         if st.session_state.get("sh_pending_email"):
@@ -243,11 +232,6 @@ def require_login() -> dict:
         st.session_state.pop(SESSION_KEY, None)
         st.error("Your access has been revoked. Please sign in again.")
         st.stop()
-
-    # Write the session cookie on the first dashboard render after login.
-    pending = st.session_state.pop("sh_needs_cookie_set", None)
-    if pending:
-        _set_session_cookie(pending)
 
     return {
         "email": email,
@@ -267,5 +251,5 @@ def sidebar_user_box() -> None:
         st.caption(f"Role: `{row.get('role', 'user')}`")
         if st.button("Sign out", use_container_width=True):
             st.session_state.pop(SESSION_KEY, None)
-            _clear_session_cookie()
+            _clear_session_token()
             st.rerun()
