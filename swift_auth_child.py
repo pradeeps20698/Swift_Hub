@@ -43,23 +43,18 @@ def _block_with_hub_redirect() -> None:
               This dashboard can only be opened from Swift Hub.
             </p>
             <p style="margin-top:32px">
-              <button id="goto"
-                style="background:#ff4b4b;color:#fff;border:none;
-                       padding:14px 36px;border-radius:8px;font-size:16px;
-                       cursor:pointer;font-weight:600">
+              <a href="{SWIFT_HUB_URL}" target="_top" rel="noopener"
+                 style="background:#ff4b4b;color:#fff;text-decoration:none;
+                        padding:14px 36px;border-radius:8px;font-size:16px;
+                        font-weight:600;display:inline-block">
                 Go to Swift Hub →
-              </button>
+              </a>
             </p>
-            <script>
-              var URL = "{SWIFT_HUB_URL}";
-              document.getElementById("goto").addEventListener("click", function() {{
-                try {{ window.top.location.href = URL; }}
-                catch(e) {{
-                  try {{ window.parent.location.href = URL; }}
-                  catch(e2) {{ window.location.href = URL; }}
-                }}
-              }});
-            </script>
+            <p style="margin-top:16px;font-size:13px;color:#666">
+              If the button doesn't work,
+              <a href="{SWIFT_HUB_URL}" target="_blank" rel="noopener"
+                 style="color:#888">open Swift Hub in a new tab</a>.
+            </p>
           </body>
         </html>
         """,
