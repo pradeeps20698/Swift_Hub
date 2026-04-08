@@ -89,9 +89,13 @@ else:
                     type="primary",
                 ):
                     log_access(user["email"], action="open", dashboard_key=d["key"])
-                    # Open the dashboard in a new tab via injected JS
+                    # Pass the raw session token to the child dashboard so it
+                    # can auto-login (single sign-on across subdomains).
+                    raw_token = st.session_state.get("sh_raw_token", "")
+                    sep = "&" if "?" in d["url"] else "?"
+                    target = f"{d['url']}{sep}s={raw_token}" if raw_token else d["url"]
                     components.html(
-                        f"<script>window.open('{d['url']}', '_blank');</script>",
+                        f"<script>window.open('{target}', '_blank');</script>",
                         height=0,
                     )
 
