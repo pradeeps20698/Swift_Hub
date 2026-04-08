@@ -29,38 +29,41 @@ SWIFT_HUB_URL = "https://swiftapp-838rpjkwfx8t2uprdmffsd.streamlit.app/"
 
 
 def _block_with_hub_redirect() -> None:
-    """Redirect the top-level browser tab to Swift Hub."""
+    """Render an in-iframe page that auto-redirects the top window to Swift Hub."""
     import streamlit.components.v1 as components
 
-    st.markdown(
-        f"""
-        <div style='text-align:center;margin-top:80px'>
-          <h1>🔒 Access via Swift Hub</h1>
-          <p style='color:#888;font-size:18px'>
-            Redirecting to Swift Hub…
-          </p>
-          <p style='margin-top:32px'>
-            <a href='{SWIFT_HUB_URL}' target='_top'
-               style='background:#ff4b4b;color:#fff;padding:12px 28px;
-                      border-radius:8px;text-decoration:none;font-weight:600'>
-              Go to Swift Hub →
-            </a>
-          </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    # Break out of Streamlit's iframe and navigate the top window.
     components.html(
         f"""
-        <script>
-          setTimeout(function() {{
-            try {{ window.top.location.href = "{SWIFT_HUB_URL}"; }}
-            catch(e) {{ window.location.href = "{SWIFT_HUB_URL}"; }}
-          }}, 800);
-        </script>
+        <html>
+          <body style="background:#0e1117;color:#fff;font-family:-apple-system,
+                       BlinkMacSystemFont,sans-serif;text-align:center;
+                       padding-top:80px;margin:0">
+            <h1 style="font-size:38px">🔒 Access via Swift Hub</h1>
+            <p style="color:#888;font-size:18px">Redirecting to Swift Hub…</p>
+            <p style="margin-top:32px">
+              <button id="goto"
+                style="background:#ff4b4b;color:#fff;border:none;
+                       padding:14px 36px;border-radius:8px;font-size:16px;
+                       cursor:pointer;font-weight:600">
+                Go to Swift Hub →
+              </button>
+            </p>
+            <script>
+              var URL = "{SWIFT_HUB_URL}";
+              function goHub() {{
+                try {{ window.top.location.href = URL; }}
+                catch(e) {{
+                  try {{ window.parent.location.href = URL; }}
+                  catch(e2) {{ window.location.href = URL; }}
+                }}
+              }}
+              document.getElementById("goto").addEventListener("click", goHub);
+              setTimeout(goHub, 400);
+            </script>
+          </body>
+        </html>
         """,
-        height=0,
+        height=420,
     )
     st.stop()
 
