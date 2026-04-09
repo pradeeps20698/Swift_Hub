@@ -40,6 +40,12 @@ RAW_TOKEN_KEY = "sh_raw_token"
 
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
+# Hard allow-list: only these company domains may sign in. This is enforced
+# in addition to any `allowed_email_domains` set in Streamlit secrets so
+# misconfigured secrets can never accidentally open the dashboard to the
+# public internet.
+ALLOWED_DOMAINS_HARDCODED = ("srlpl.in", "swiftroadlink.com")
+
 
 # ---------------------------------------------------------------------------
 # Session-token storage (browser side)
@@ -122,9 +128,18 @@ def _allowed_domains() -> list[str]:
     cfg = _app_cfg()
     domains = cfg.get("allowed_email_domains")
     if domains:
-        return [d.lower() for d in domains]
-    single = cfg.get("allowed_email_domain")
-    return [single.lower()] if single else []
+        configured = [d.lower() for d in domains]
+    else:
+        single = cfg.get("allowed_email_domain")
+        configured = [single.lower()] if single else []
+    # Always intersect with the hard allow-list. If secrets list extra
+    # domains they are ignored; if secrets are empty we fall back to the
+    # hard-coded company domains.
+    if not configured:
+        return list(ALLOWED_DOMAINS_HARDCODED)
+    return [d for d in configured if d in ALLOWED_DOMAINS_HARDCODED] or list(
+        ALLOWED_DOMAINS_HARDCODED
+    )
 
 
 def _bootstrap_admins() -> list[str]:
@@ -159,9 +174,7 @@ def is_admin(email: str) -> bool:
 # Login UI
 # ---------------------------------------------------------------------------
 def _domain_ok(email: str) -> bool:
-    domains = _allowed_domains()
-    if not domains:
-        return True
+    domains = _allowed_domains() or list(ALLOWED_DOMAINS_HARDCODED)
     return any(email.endswith("@" + d) for d in domains)
 
 
