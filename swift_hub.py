@@ -135,7 +135,11 @@ if is_admin(user["email"]):
             st.info("No users yet.")
         else:
             df = pd.DataFrame(users)
-            df["created_at"] = pd.to_datetime(df["created_at"]).dt.strftime("%Y-%m-%d %H:%M")
+            df["created_at"] = (
+                pd.to_datetime(df["created_at"], utc=True)
+                .dt.tz_convert("Asia/Kolkata")
+                .dt.strftime("%Y-%m-%d %H:%M IST")
+            )
             st.dataframe(
                 df[["email", "name", "role", "is_blocked", "created_at"]],
                 use_container_width=True,
