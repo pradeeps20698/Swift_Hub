@@ -353,3 +353,20 @@ def recent_logs(limit: int = 200) -> list[dict]:
             (limit,),
         )
         return [dict(r) for r in cur.fetchall()]
+
+
+def logs_in_date_range(start_date: str, end_date: str) -> list[dict]:
+    """Return access logs between start_date and end_date (inclusive, IST)."""
+    with get_conn().cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT email, dashboard_key, action, ts
+              FROM swift_hub_access_logs
+             WHERE ts >= (%s::date) AT TIME ZONE 'Asia/Kolkata'
+               AND ts <  ((%s::date) + INTERVAL '1 day') AT TIME ZONE 'Asia/Kolkata'
+               AND action IN ('open', 'heartbeat')
+             ORDER BY ts
+            """,
+            (start_date, end_date),
+        )
+        return [dict(r) for r in cur.fetchall()]

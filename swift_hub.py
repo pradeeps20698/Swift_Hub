@@ -11,6 +11,7 @@ from swift_db import (
     list_permissions,
     list_users,
     log_access,
+    logs_in_date_range,
     recent_logs,
     set_blocked,
     set_role_permissions,
@@ -103,8 +104,8 @@ else:
 # ---- Admin section -----------------------------------------------------------
 if is_admin(user["email"]):
     st.divider()
-    tab_users, tab_perms, tab_logs, tab_activity = st.tabs(
-        ["👤 Users", "🔐 Permissions", "📜 Access logs", "📊 Daily activity"]
+    tab_users, tab_perms, tab_logs, tab_activity, tab_report = st.tabs(
+        ["👤 Users", "🔐 Permissions", "📜 Access logs", "📊 Daily activity", "📥 Download Report"]
     )
 
     # --- Users tab ------------------------------------------------------------
@@ -281,6 +282,77 @@ if is_admin(user["email"]):
                         use_container_width=True,
                         hide_index=True,
                     )
+
+    # --- Download Report tab ----------------------------------------------------
+    with tab_report:
+        import datetime as _dt
+        import io as _io
+
+        st.caption(
+            "Select a date range and download a user-wise attendance report. "
+            "✓ = opened any dashboard that day, ✗ = did not open."
+        )
+
+        rc1, rc2 = st.columns(2)
+        today = _dt.date.today()
+        report_start = rc1.date_input(
+            "From", value=today - _dt.timedelta(days=6), max_value=today, key="rpt_from"
+        )
+        report_end = rc2.date_input(
+            "To", value=today, max_value=today, key="rpt_to"
+        )
+
+        if report_start > report_end:
+            st.error("'From' date must be before 'To' date.")
+        else:
+            # Build list of all dates in range
+            num_days = (report_end - report_start).days + 1
+            all_dates = [report_start + _dt.timedelta(days=i) for i in range(num_days)]
+
+            # Fetch logs
+            rows = logs_in_date_range(str(report_start), str(report_end))
+            users = list_users()
+            user_names = {u["email"]: u["name"] or u["email"] for u in users}
+            all_emails = sorted(user_names.keys())
+
+            # Build per-user set of active dates
+            rdf = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["email", "ts"])
+            if not rdf.empty:
+                rdf["ts"] = pd.to_datetime(rdf["ts"], utc=True).dt.tz_convert("Asia/Kolkata")
+                rdf["date"] = rdf["ts"].dt.date
+                active_sets: dict[str, set] = rdf.groupby("email")["date"].apply(set).to_dict()
+            else:
+                active_sets = {}
+
+            # Build report dataframe
+            report_rows = []
+            for email in all_emails:
+                name = user_names[email]
+                active_dates = active_sets.get(email, set())
+                days_active = len([d for d in all_dates if d in active_dates])
+                row = {
+                    "Name": name,
+                    "Total Days": num_days,
+                    "Days Active": days_active,
+                }
+                for d in all_dates:
+                    row[d.strftime("%d-%b")] = "✓" if d in active_dates else "✗"
+                report_rows.append(row)
+
+            report_df = pd.DataFrame(report_rows)
+
+            st.dataframe(report_df, use_container_width=True, hide_index=True)
+
+            # CSV download
+            csv_buf = _io.StringIO()
+            report_df.to_csv(csv_buf, index=False)
+            st.download_button(
+                "Download CSV",
+                data=csv_buf.getvalue(),
+                file_name=f"swift_hub_report_{report_start}_{report_end}.csv",
+                mime="text/csv",
+                type="primary",
+            )
 
 st.divider()
 st.caption("© Swift Roadlink Pvt. Ltd.")
