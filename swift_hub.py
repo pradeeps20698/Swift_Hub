@@ -302,8 +302,22 @@ if is_admin(user["email"]):
             "To", value=today, max_value=today, key="rpt_to"
         )
 
+        # User multi-select filter
+        all_users = list_users()
+        all_user_names = {u["email"]: u["name"] or u["email"] for u in all_users}
+        user_options = sorted(all_user_names.keys())
+        selected_users = st.multiselect(
+            "Select Users",
+            options=user_options,
+            default=user_options,
+            format_func=lambda e: all_user_names[e],
+            key="rpt_users",
+        )
+
         if report_start > report_end:
             st.error("'From' date must be before 'To' date.")
+        elif not selected_users:
+            st.warning("Select at least one user.")
         else:
             # Build list of all dates in range
             num_days = (report_end - report_start).days + 1
@@ -311,9 +325,8 @@ if is_admin(user["email"]):
 
             # Fetch logs
             rows = logs_in_date_range(str(report_start), str(report_end))
-            users = list_users()
-            user_names = {u["email"]: u["name"] or u["email"] for u in users}
-            all_emails = sorted(user_names.keys())
+            user_names = {e: all_user_names[e] for e in selected_users}
+            all_emails = sorted(selected_users)
 
             # Build per-user set of active dates
             rdf = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["email", "ts"])
