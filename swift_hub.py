@@ -38,7 +38,7 @@ DASHBOARDS = [
         "title": "Live Tracking",
         "icon": "📍",
         "description": "Real-time vehicle locations and movement.",
-        "url": "https://swiftlivetracking-bbycn4zvrcmtuat2gudgub.streamlit.app/",
+        "url": "https://swiftlivetracking-n2wcbe2wm8fxuytdvcxzsa.streamlit.app/",
     },
     {
         "key": "billing",
