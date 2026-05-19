@@ -9,8 +9,7 @@ import streamlit as st
 # ---------------------------------------------------------------------------
 # Connection
 # ---------------------------------------------------------------------------
-@st.cache_resource(show_spinner=False)
-def get_conn():
+def _new_conn():
     cfg = st.secrets["database"]
     conn = psycopg2.connect(
         host=cfg["host"],
@@ -20,6 +19,27 @@ def get_conn():
         dbname=cfg["dbname"],
     )
     conn.autocommit = True
+    return conn
+
+
+@st.cache_resource(show_spinner=False)
+def _cached_conn():
+    return _new_conn()
+
+
+def get_conn():
+    """Return a live Postgres connection, reconnecting if the cached one is dead."""
+    conn = _cached_conn()
+    try:
+        conn.cursor().execute("SELECT 1")
+    except Exception:
+        # Connection is dead — clear the cache and create a fresh one
+        try:
+            conn.close()
+        except Exception:
+            pass
+        _cached_conn.clear()
+        conn = _cached_conn()
     return conn
 
 

@@ -90,8 +90,9 @@ def require_dashboard_access(dashboard_key: str) -> dict:
 
     try:
         init_schema()
-    except Exception:
-        _block_with_hub_redirect()
+    except Exception as e:
+        st.error(f"Database connection failed: {e}")
+        st.stop()
 
     # Already authenticated in this Streamlit session? (refresh / interaction)
     email = st.session_state.get(SESSION_KEY)
