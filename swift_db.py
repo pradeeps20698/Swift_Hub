@@ -17,6 +17,10 @@ def _new_conn():
         user=cfg["user"],
         password=cfg["password"],
         dbname=cfg["dbname"],
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
     )
     conn.autocommit = True
     return conn
