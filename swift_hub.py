@@ -54,6 +54,13 @@ DASHBOARDS = [
         "description": "Driver KPIs, scores and rankings.",
         "url": "https://swiftdriverperformance-e7uksnstfkdzqdqgeuqmz3.streamlit.app/",
     },
+    {
+        "key": "arrival_load_decision",
+        "title": "Arrival & Load Decision Dashboard",
+        "icon": "📦",
+        "description": "Vehicle arrivals and load allocation decisions.",
+        "url": "https://swiftarrival-loaddecision-84quq3lv3yfnezk5lwuckk.streamlit.app/",
+    },
 ]
 DASH_KEYS = [d["key"] for d in DASHBOARDS]
 DASH_BY_KEY = {d["key"]: d for d in DASHBOARDS}
