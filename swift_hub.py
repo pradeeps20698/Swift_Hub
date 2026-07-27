@@ -4,7 +4,13 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from swift_auth import is_admin, require_login, sidebar_user_box
+from swift_auth import (
+    is_admin,
+    logo_img_html,
+    render_app_background,
+    require_login,
+    sidebar_user_box,
+)
 from swift_db import (
     delete_user,
     get_permitted_dashboards,
@@ -66,14 +72,20 @@ DASH_KEYS = [d["key"] for d in DASHBOARDS]
 DASH_BY_KEY = {d["key"]: d for d in DASHBOARDS}
 
 user = require_login()
+render_app_background()
 sidebar_user_box()
 
 st.markdown(
-    "<h1 style='text-align:center;margin-bottom:0'>🚛 Swift Hub</h1>",
+    "<div style='display:flex;align-items:center;justify-content:center;gap:14px;"
+    "margin-bottom:2px'>"
+    f"{logo_img_html(size=60, radius=15)}"
+    "<span style='font-size:2.4rem;font-weight:800;letter-spacing:.5px;color:#F7F3E8'>"
+    "Swift <span style='color:#E0B84B'>Hub</span></span>"
+    "</div>",
     unsafe_allow_html=True,
 )
 st.markdown(
-    f"<p style='text-align:center;color:#888;margin-top:4px'>"
+    f"<p style='text-align:center;color:#AEB6C2;margin-top:4px'>"
     f"Welcome, {user['name'] or user['email']} · role: {user['role']}</p>",
     unsafe_allow_html=True,
 )

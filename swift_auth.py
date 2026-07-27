@@ -355,6 +355,80 @@ def _login_header(subtitle: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Shared branding for the signed-in app pages (hub / dashboards)
+# ---------------------------------------------------------------------------
+def render_app_background(dark: float = 0.72) -> None:
+    """Inject the Swift carrier photo as a full-page background. `dark` is the
+    overlay opacity (higher = darker). Bordered containers get a semi-opaque
+    panel so content stays readable while the photo shows through."""
+    bg = _login_bg_uri()
+    if not bg:
+        return
+    d2 = min(dark + 0.08, 0.98)
+    st.markdown(
+        f"""
+        <style>
+        [data-testid="stApp"] {{ background: #0b0f17; }}
+        [data-testid="stAppViewContainer"] {{
+            background: transparent; position: relative; z-index: 0;
+        }}
+        [data-testid="stAppViewContainer"]::before {{
+            content: ""; position: fixed; inset: 0; z-index: -1;
+            background:
+                linear-gradient(180deg, rgba(9,12,20,{dark}) 0%, rgba(9,12,20,{d2}) 100%),
+                url("{bg}") center center / cover no-repeat fixed;
+        }}
+        [data-testid="stHeader"] {{ background: transparent; }}
+        /* Give bordered cards a readable, highlighted panel over the photo */
+        [data-testid="stAppViewContainer"] div[data-testid="stVerticalBlockBorderWrapper"] {{
+            background: rgba(18,22,32,.88) !important;
+            border-radius: 16px !important;
+            border: 2px solid rgba(224,184,75,.85) !important;
+            box-shadow: 0 12px 34px rgba(0,0,0,.5) !important;
+            backdrop-filter: blur(4px);
+        }}
+        /* Make divider / horizontal lines clearly visible (gold tint) */
+        [data-testid="stAppViewContainer"] hr,
+        [data-testid="stAppViewContainer"] [data-testid="stDivider"] hr {{
+            border-color: rgba(224,184,75,.55) !important;
+            background: rgba(224,184,75,.55) !important;
+            opacity: 1 !important;
+        }}
+        /* Swift-gold primary buttons and dashboard "Open" link buttons */
+        [data-testid="stAppViewContainer"] .stLinkButton a,
+        [data-testid="stAppViewContainer"] button[kind="primary"],
+        [data-testid="stAppViewContainer"] button[kind="primaryFormSubmit"] {{
+            background: linear-gradient(90deg,#E0B84B 0%,#C79A2F 100%) !important;
+            color: #1a1204 !important;
+            border: none !important;
+            font-weight: 700 !important;
+            box-shadow: 0 6px 16px rgba(224,184,75,.28) !important;
+        }}
+        [data-testid="stAppViewContainer"] .stLinkButton a:hover,
+        [data-testid="stAppViewContainer"] button[kind="primary"]:hover,
+        [data-testid="stAppViewContainer"] button[kind="primaryFormSubmit"]:hover {{
+            filter: brightness(1.06);
+            color: #1a1204 !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def logo_img_html(size: int = 60, radius: int = 14) -> str:
+    """Return an <img> tag for the Swift logo as a data-URI, or '' if none."""
+    uri = _logo_data_uri()
+    if not uri:
+        return ""
+    return (
+        f'<img src="{uri}" alt="Swift" style="width:{size}px;height:{size}px;'
+        f"object-fit:cover;border-radius:{radius}px;vertical-align:middle;"
+        f'box-shadow:0 4px 14px rgba(0,0,0,.5)"/>'
+    )
+
+
+# ---------------------------------------------------------------------------
 # Login UI
 # ---------------------------------------------------------------------------
 def _domain_ok(email: str) -> bool:
