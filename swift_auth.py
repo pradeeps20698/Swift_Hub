@@ -177,17 +177,16 @@ def is_admin(email: str) -> bool:
 # ---------------------------------------------------------------------------
 _ASSETS = Path(__file__).parent / "assets"
 
-@st.cache_data(show_spinner=False)
+# The car-carrier hero image is served as a static file (see
+# .streamlit/config.toml -> enableStaticServing). This keeps it high-res and
+# browser-cached instead of a heavy base64 data-URI re-sent on every rerun.
+# The file lives at ./static/login_bg.jpg and is reachable at this URL.
+_LOGIN_BG_URL = "app/static/login_bg.jpg"
+
+
 def _login_bg_uri() -> str:
-    """Data-URI for the car-carrier hero image behind the login card."""
-    for name in ("login_bg.jpg", "login_bg.jpeg", "login_bg.png"):
-        path = _ASSETS / name
-        if path.exists():
-            raw = path.read_bytes()
-            mime = "image/png" if raw[:4] == b"\x89PNG" else "image/jpeg"
-            b64 = base64.b64encode(raw).decode()
-            return f"data:{mime};base64,{b64}"
-    return ""
+    """URL for the car-carrier hero image behind the login/hub content."""
+    return _LOGIN_BG_URL
 
 
 @st.cache_data(show_spinner=False)

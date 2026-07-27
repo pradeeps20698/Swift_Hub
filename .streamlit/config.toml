@@ -1,3 +1,9 @@
+[server]
+# Serve files in ./static at app/static/<file> so the login/hub background
+# photo can be a high-res image the browser caches, instead of a heavy
+# base64 data-URI re-sent on every rerun.
+enableStaticServing = true
+
 [theme]
 base = "dark"
 primaryColor = "#4F8BF9"
