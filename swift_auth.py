@@ -13,7 +13,9 @@ Login persistence:
 """
 from __future__ import annotations
 
+import base64
 import re
+from pathlib import Path
 
 import streamlit as st
 from streamlit_local_storage import LocalStorage
@@ -171,6 +173,190 @@ def is_admin(email: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Login UI — branding & theme
+# ---------------------------------------------------------------------------
+_ASSETS = Path(__file__).parent / "assets"
+
+@st.cache_data(show_spinner=False)
+def _login_bg_uri() -> str:
+    """Data-URI for the car-carrier hero image behind the login card."""
+    for name in ("login_bg.jpg", "login_bg.jpeg", "login_bg.png"):
+        path = _ASSETS / name
+        if path.exists():
+            raw = path.read_bytes()
+            mime = "image/png" if raw[:4] == b"\x89PNG" else "image/jpeg"
+            b64 = base64.b64encode(raw).decode()
+            return f"data:{mime};base64,{b64}"
+    return ""
+
+
+@st.cache_data(show_spinner=False)
+def _logo_data_uri() -> str:
+    """Return a data-URI for the Swift logo.
+
+    Prefers a real raster logo dropped at ``assets/swift_logo.png``; falls
+    back to the bundled SVG recreation so the page always shows a mark.
+    """
+    for name, mime in (
+        ("swift_logo.png", None),
+        ("swift_logo.jpg", "image/jpeg"),
+        ("swift_logo.jpeg", "image/jpeg"),
+        ("swift_logo.svg", "image/svg+xml"),
+    ):
+        path = _ASSETS / name
+        if not path.exists():
+            continue
+        raw = path.read_bytes()
+        if mime is None:
+            # A ".png" may actually hold JPEG bytes — sniff the magic number
+            # so the browser gets the right MIME and renders it.
+            mime = "image/jpeg" if raw[:3] == b"\xff\xd8\xff" else "image/png"
+        b64 = base64.b64encode(raw).decode()
+        return f"data:{mime};base64,{b64}"
+    return ""
+
+
+def _inject_login_css() -> None:
+    if st.session_state.get("_login_css_done"):
+        return
+    st.session_state["_login_css_done"] = True
+    bg = _login_bg_uri()
+    st.markdown(
+        f"""
+        <style>
+        /* Login background: the FULL Swift carrier photo shown uncropped and
+           centred (::after), over a blurred, darkened copy of the same photo
+           (::before) so the whole browser window is filled with no empty
+           side bars. A gradient keeps the login card readable. */
+        [data-testid="stApp"] {{ background: #0b0f17; }}
+        [data-testid="stAppViewContainer"] {{
+            background: transparent;
+            position: relative;
+            z-index: 0;
+        }}
+        /* Full-bleed carrier photo filling the entire browser window. */
+        [data-testid="stAppViewContainer"]::before {{
+            content: ""; position: fixed; inset: 0; z-index: -1;
+            background:
+                /* soft, light gold/orange (logo colour) wash on the LEFT that
+                   blends smoothly into the carrier photo — no hard divider. */
+                linear-gradient(to right,
+                    rgba(238,212,158,.82) 0%,
+                    rgba(238,212,158,.60) 22%,
+                    rgba(238,212,158,.36) 40%,
+                    rgba(238,212,158,.16) 58%,
+                    rgba(238,212,158,.04) 74%,
+                    rgba(238,212,158,0) 88%),
+                url("{bg}") center center / cover no-repeat;
+        }}
+        [data-testid="stHeader"] {{ background: transparent; }}
+        /* Constrain the whole login column to a neat centred card so the
+           form never spans full width and slices the background. */
+        /* Vertically centre the login column within the viewport. */
+        [data-testid="stMain"] {{
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
+        }}
+        /* Centre the login column within the left gold panel horizontally
+           (around ~21% of the width). */
+        [data-testid="stMainBlockContainer"],
+        [data-testid="stAppViewContainer"] .block-container {{
+            max-width: 600px !important;
+            margin-left: max(calc(22vw - 300px), 24px) !important;
+            margin-right: auto !important;
+            padding-top: 3vh !important;
+            padding-bottom: 3vh !important;
+        }}
+
+        /* Brand header */
+        .swift-brand {{ text-align: center; margin-bottom: 16px; }}
+        .swift-brand img {{
+            width: 188px; height: 188px; object-fit: cover;
+            border-radius: 30px;
+            box-shadow: 0 14px 40px rgba(0,0,0,.55);
+        }}
+        .swift-title {{
+            text-align: center;
+            font-size: 3.1rem; font-weight: 800; letter-spacing: .5px;
+            color: #1e1708; margin: 12px 0 6px;
+            text-shadow: 0 1px 0 rgba(255,255,255,.25);
+        }}
+        .swift-title span {{ color: #7a4f0f; }}
+        .swift-sub {{
+            text-align: center; color: #4a3c1c;
+            font-size: 1.22rem; margin: 0 0 30px; font-weight: 600;
+        }}
+
+        /* Glass login card wrapping the Streamlit form */
+        [data-testid="stForm"] {{
+            background: rgba(16,20,30,.88);
+            border: 1px solid rgba(224,184,75,.32);
+            border-radius: 22px;
+            padding: 42px 40px 34px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 24px 70px rgba(0,0,0,.65);
+        }}
+        [data-testid="stForm"] label {{
+            color: #D7DEE8 !important; font-weight: 600;
+            font-size: 1.12rem !important;
+        }}
+        [data-testid="stForm"] input {{
+            background: rgba(12,16,24,.85) !important;
+            border: 1px solid rgba(255,255,255,.12) !important;
+            border-radius: 12px !important;
+            color: #F5F7FA !important;
+            height: auto !important; line-height: 1.4 !important;
+            padding: 19px 18px !important; font-size: 1.15rem !important;
+        }}
+        /* keep BaseWeb input wrappers transparent so our styled input shows */
+        [data-testid="stForm"] [data-baseweb="input"],
+        [data-testid="stForm"] [data-baseweb="base-input"] {{
+            background: transparent !important;
+        }}
+        [data-testid="stForm"] input:focus {{
+            border-color: #E0B84B !important;
+            box-shadow: 0 0 0 2px rgba(224,184,75,.25) !important;
+        }}
+        /* Primary button -> gold gradient */
+        [data-testid="stForm"] button[kind="primaryFormSubmit"] {{
+            background: linear-gradient(90deg,#E0B84B 0%,#C79A2F 100%) !important;
+            color: #1a1204 !important;
+            border: none !important; border-radius: 12px !important;
+            font-weight: 700 !important; height: 62px; font-size: 1.2rem !important;
+            box-shadow: 0 8px 20px rgba(224,184,75,.28);
+        }}
+        [data-testid="stForm"] button[kind="primaryFormSubmit"]:hover {{
+            filter: brightness(1.06);
+        }}
+        [data-testid="stForm"] button[kind="secondaryFormSubmit"] {{
+            border-radius: 10px !important; height: 46px;
+        }}
+        .swift-foot {{
+            text-align: center; color: #5a4a25;
+            font-size: .8rem; margin-top: 20px; font-weight: 600;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _login_header(subtitle: str) -> None:
+    _inject_login_css()
+    logo = _logo_data_uri()
+    logo_html = f'<div class="swift-brand"><img src="{logo}" alt="Swift"/></div>' if logo else ""
+    st.markdown(
+        f"""
+        {logo_html}
+        <div class="swift-title">Swift <span>Hub</span></div>
+        <div class="swift-sub">{subtitle}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Login UI
 # ---------------------------------------------------------------------------
 def _domain_ok(email: str) -> bool:
@@ -179,12 +365,16 @@ def _domain_ok(email: str) -> bool:
 
 
 def _request_code_ui() -> None:
-    st.title("🚛 Swift Hub")
-    st.write("Sign in with your company email.")
+    _login_header("Swift Roadlink Pvt. Ltd. · Car Carrier Logistics")
 
     with st.form("request_code_form"):
-        email = st.text_input("Email", placeholder="you@srlpl.in")
-        submit = st.form_submit_button("Send login code", type="primary")
+        email = st.text_input("Company email", placeholder="you@srlpl.in")
+        submit = st.form_submit_button("Send login code", type="primary", use_container_width=True)
+
+    st.markdown(
+        "<div class='swift-foot'>Secure sign-in · a one-time code will be emailed to you</div>",
+        unsafe_allow_html=True,
+    )
 
     if not submit:
         return
@@ -223,14 +413,13 @@ def _request_code_ui() -> None:
 
 def _verify_code_ui() -> None:
     email = st.session_state.get("sh_pending_email", "")
-    st.title("🚛 Swift Hub")
-    st.write(f"Enter the 6-digit code sent to **{email}**.")
+    _login_header(f"Enter the 6-digit code sent to <b>{email}</b>")
 
     with st.form("verify_code_form"):
         code = st.text_input("Login code", max_chars=6, placeholder="123456")
         c1, c2 = st.columns(2)
-        verify = c1.form_submit_button("Verify", type="primary")
-        change = c2.form_submit_button("Use a different email")
+        verify = c1.form_submit_button("Verify", type="primary", use_container_width=True)
+        change = c2.form_submit_button("Use a different email", use_container_width=True)
 
     if change:
         st.session_state.pop("sh_pending_email", None)
