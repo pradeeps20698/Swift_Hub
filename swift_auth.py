@@ -217,17 +217,15 @@ def _logo_data_uri() -> str:
 
 
 def _inject_login_css() -> None:
-    if st.session_state.get("_login_css_done"):
-        return
-    st.session_state["_login_css_done"] = True
+    # Streamlit rebuilds the DOM on every rerun, so the <style> block must be
+    # re-emitted each run (including the OTP-verify step) — do NOT guard this
+    # behind session_state or later pages render unstyled.
     bg = _login_bg_uri()
     st.markdown(
         f"""
         <style>
-        /* Login background: the FULL Swift carrier photo shown uncropped and
-           centred (::after), over a blurred, darkened copy of the same photo
-           (::before) so the whole browser window is filled with no empty
-           side bars. A gradient keeps the login card readable. */
+        /* Login background: the Swift carrier photo fills the whole browser
+           window (::before, cover) with a soft gold wash on the left. */
         [data-testid="stApp"] {{ background: #0b0f17; }}
         [data-testid="stAppViewContainer"] {{
             background: transparent;
@@ -388,14 +386,15 @@ def _request_code_ui() -> None:
         st.error(f"Only {allowed} accounts are allowed.")
         return
 
-    code = generate_code()
-    try:
-        store_login_code(email, hash_code(code), ttl_seconds=600)
-    except Exception as e:
-        st.error(f"Could not store login code: {e}")
-        return
+    with st.spinner("Sending login code…"):
+        code = generate_code()
+        try:
+            store_login_code(email, hash_code(code), ttl_seconds=600)
+        except Exception as e:
+            st.error(f"Could not store login code: {e}")
+            return
 
-    sent, info = send_code(email, code)
+        sent, info = send_code(email, code)
     st.session_state["sh_pending_email"] = email
     if sent:
         st.success(f"A 6-digit login code has been sent to {email}. It expires in 10 minutes.")
@@ -473,7 +472,10 @@ def require_login() -> dict:
 
     email = st.session_state.get(SESSION_KEY)
 
-    if not email:
+    # While the user is mid-OTP (a code has been requested) there's no point
+    # touching browser localStorage — skipping it avoids an extra component
+    # roundtrip/rerun and keeps the verify step snappy.
+    if not email and not st.session_state.get("sh_pending_email"):
         # Try to restore from a previously-issued session token in the browser
         raw_token = _read_token_from_browser()
         if raw_token:
