@@ -315,6 +315,15 @@ def _inject_login_css() -> None:
             border-color: #E0B84B !important;
             box-shadow: 0 0 0 2px rgba(224,184,75,.25) !important;
         }}
+        /* Smooth, responsive feel on every form button */
+        [data-testid="stForm"] button {{
+            transition: transform .12s ease, filter .12s ease,
+                        box-shadow .12s ease, background .12s ease !important;
+            will-change: transform;
+        }}
+        [data-testid="stForm"] button:active {{
+            transform: translateY(1px) scale(.995) !important;
+        }}
         /* Primary button -> gold gradient */
         [data-testid="stForm"] button[kind="primaryFormSubmit"] {{
             background: linear-gradient(90deg,#E0B84B 0%,#C79A2F 100%) !important;
@@ -325,9 +334,17 @@ def _inject_login_css() -> None:
         }}
         [data-testid="stForm"] button[kind="primaryFormSubmit"]:hover {{
             filter: brightness(1.06);
+            box-shadow: 0 10px 26px rgba(224,184,75,.36);
+        }}
+        [data-testid="stForm"] button[kind="primaryFormSubmit"]:active {{
+            box-shadow: 0 4px 12px rgba(224,184,75,.30);
         }}
         [data-testid="stForm"] button[kind="secondaryFormSubmit"] {{
             border-radius: 10px !important; height: 46px;
+        }}
+        [data-testid="stForm"] button[kind="secondaryFormSubmit"]:hover {{
+            border-color: rgba(224,184,75,.55) !important;
+            filter: brightness(1.12);
         }}
         .swift-foot {{
             text-align: center; color: #5a4a25;
@@ -408,6 +425,18 @@ def render_app_background(dark: float = 0.72) -> None:
         [data-testid="stAppViewContainer"] button[kind="primaryFormSubmit"]:hover {{
             filter: brightness(1.06);
             color: #1a1204 !important;
+            box-shadow: 0 9px 22px rgba(224,184,75,.36) !important;
+        }}
+        /* Smooth, responsive feel on every button/link across the app */
+        [data-testid="stAppViewContainer"] .stLinkButton a,
+        [data-testid="stAppViewContainer"] button {{
+            transition: transform .12s ease, filter .12s ease,
+                        box-shadow .12s ease, background .12s ease !important;
+            will-change: transform;
+        }}
+        [data-testid="stAppViewContainer"] .stLinkButton a:active,
+        [data-testid="stAppViewContainer"] button:active {{
+            transform: translateY(1px) scale(.995) !important;
         }}
         </style>
         """,
@@ -559,7 +588,19 @@ def require_login() -> dict:
     # While the user is mid-OTP (a code has been requested) there's no point
     # touching browser localStorage — skipping it avoids an extra component
     # roundtrip/rerun and keeps the verify step snappy.
-    if not email and not st.session_state.get("sh_pending_email"):
+    #
+    # We restore a prior session ONLY during the initial probe, then latch
+    # `sh_ls_checked`. This is critical: the localStorage `getItem` renders an
+    # iframe whose first paint returns None and forces its own rerun. If we
+    # re-rendered it on every run of the login page, that roundtrip would race
+    # the form submit and swallow it — making "Send login code" take several
+    # clicks. Once we've concluded there's no token we stop touching the
+    # component entirely, so a single click lands cleanly.
+    if (
+        not email
+        and not st.session_state.get("sh_pending_email")
+        and not st.session_state.get("sh_ls_checked")
+    ):
         # Try to restore from a previously-issued session token in the browser
         raw_token = _read_token_from_browser()
         if raw_token:
@@ -577,10 +618,15 @@ def require_login() -> dict:
                     _clear_token_from_browser()
             else:
                 _clear_token_from_browser()
-        elif not st.session_state.get("sh_ls_checked"):
+            st.session_state["sh_ls_checked"] = True
+        elif st.session_state.get("sh_ls_probed"):
+            # Component has completed its JS roundtrip and still no token —
+            # conclude there is none and stop rendering it from now on.
+            st.session_state["sh_ls_checked"] = True
+        else:
             # First load: localStorage component returns None on initial
             # render; rerun once so the JS roundtrip can complete.
-            st.session_state["sh_ls_checked"] = True
+            st.session_state["sh_ls_probed"] = True
             st.rerun()
 
     if not email:
