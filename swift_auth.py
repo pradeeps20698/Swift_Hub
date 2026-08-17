@@ -459,6 +459,13 @@ def _request_code_ui() -> None:
         st.error(f"Only {allowed} accounts are allowed.")
         return
 
+    _issue_login_code(email)
+    st.session_state["sh_pending_email"] = email
+    st.rerun()
+
+
+def _issue_login_code(email: str) -> None:
+    """Generate, store and email a fresh login code, surfacing status to the UI."""
     with st.spinner("Sending login code…"):
         code = generate_code()
         try:
@@ -468,7 +475,6 @@ def _request_code_ui() -> None:
             return
 
         sent, info = send_code(email, code)
-    st.session_state["sh_pending_email"] = email
     if sent:
         st.success(f"A 6-digit login code has been sent to {email}. It expires in 10 minutes.")
     else:
@@ -480,7 +486,6 @@ def _request_code_ui() -> None:
             st.code(code, language="text")
         else:
             st.error(f"Could not send email: {info}")
-    st.rerun()
 
 
 def _verify_code_ui() -> None:
@@ -491,10 +496,16 @@ def _verify_code_ui() -> None:
         code = st.text_input("Login code", max_chars=6, placeholder="123456")
         c1, c2 = st.columns(2)
         verify = c1.form_submit_button("Verify", type="primary", use_container_width=True)
-        change = c2.form_submit_button("Use a different email", use_container_width=True)
+        resend = c2.form_submit_button("Resend code", use_container_width=True)
+        change = st.form_submit_button("Use a different email", use_container_width=True)
 
     if change:
         st.session_state.pop("sh_pending_email", None)
+        st.rerun()
+        return
+
+    if resend:
+        _issue_login_code(email)
         st.rerun()
         return
 
