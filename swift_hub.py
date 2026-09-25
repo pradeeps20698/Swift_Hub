@@ -67,6 +67,13 @@ DASHBOARDS = [
         "description": "Vehicle arrivals and load allocation decisions.",
         "url": "https://swiftarrival-loaddecision-84quq3lv3yfnezk5lwuckk.streamlit.app/",
     },
+    {
+        "key": "creditors",
+        "title": "Creditors",
+        "icon": "🧾",
+        "description": "Creditor balances, ageing and outstanding payments.",
+        "url": "https://creditors-svohsct2mqh7xftazxglwd.streamlit.app/",
+    },
 ]
 DASH_KEYS = [d["key"] for d in DASHBOARDS]
 DASH_BY_KEY = {d["key"]: d for d in DASHBOARDS}
