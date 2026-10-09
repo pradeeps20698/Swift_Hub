@@ -14,6 +14,7 @@ from swift_auth import (
 from swift_db import (
     delete_user,
     get_permitted_dashboards,
+    get_user_features,
     list_permissions,
     list_users,
     log_access,
@@ -21,8 +22,10 @@ from swift_db import (
     recent_logs,
     set_blocked,
     set_role_permissions,
+    set_user_features,
     upsert_user,
 )
+from swift_features import features_for, has_feature_gating
 
 st.set_page_config(
     page_title="Swift Hub",
@@ -130,8 +133,9 @@ else:
 # ---- Admin section -----------------------------------------------------------
 if is_admin(user["email"]):
     st.divider()
-    tab_users, tab_perms, tab_logs, tab_activity, tab_report = st.tabs(
-        ["👤 Users", "🔐 Permissions", "📜 Access logs", "📊 Daily activity", "📥 Download Report"]
+    tab_users, tab_perms, tab_feat, tab_logs, tab_activity, tab_report = st.tabs(
+        ["👤 Users", "🔐 Permissions", "🧾 Tab/Table access",
+         "📜 Access logs", "📊 Daily activity", "📥 Download Report"]
     )
 
     # --- Users tab ------------------------------------------------------------
@@ -232,6 +236,77 @@ if is_admin(user["email"]):
                     st.cache_data.clear()
                     st.success(f"Updated permissions for {role}.")
                     st.rerun()
+
+    # --- Tab/Table access tab -------------------------------------------------
+    with tab_feat:
+        st.caption(
+            "Per-user access to individual tabs, tables and KPI cards. "
+            "Deny-by-default: a user sees only what you tick here. "
+            "Admins always see everything. The user must also have the "
+            "dashboard allowed for their role (see **Permissions**)."
+        )
+
+        # Only dashboards with a feature catalogue support tab/table gating.
+        feat_dash = [d for d in DASHBOARDS if has_feature_gating(d["key"])]
+        if not feat_dash:
+            st.info("No dashboards have tab/table-level access configured.")
+        else:
+            d = feat_dash[0] if len(feat_dash) == 1 else DASH_BY_KEY[
+                st.selectbox(
+                    "Dashboard",
+                    options=[x["key"] for x in feat_dash],
+                    format_func=lambda k: DASH_BY_KEY[k]["title"],
+                    key="feat_dash_pick",
+                )
+            ]
+            dkey = d["key"]
+            st.markdown(f"**Dashboard: `{d['title']}`**")
+
+            non_admins = [u for u in list_users() if u["role"] != "admin"]
+            if not non_admins:
+                st.info("No non-admin users yet. Add users in the **Users** tab.")
+            else:
+                target = st.selectbox(
+                    "User",
+                    options=[u["email"] for u in non_admins],
+                    format_func=lambda e: next(
+                        (f"{u['email']} ({u['name']})" if u.get("name") else u["email"])
+                        for u in non_admins if u["email"] == e
+                    ),
+                    key="feat_user_pick",
+                )
+                granted = get_user_features(target, dkey)
+
+                with st.form(f"feat_form_{dkey}"):
+                    # Render checkboxes grouped by section, pre-ticked from grants.
+                    selected: list[str] = []
+                    last_group = None
+                    for feat in features_for(dkey):
+                        if feat["group"] != last_group:
+                            st.markdown(f"**{feat['group']}**")
+                            last_group = feat["group"]
+                        if st.checkbox(
+                            feat["label"],
+                            value=feat["key"] in granted,
+                            key=f"feat_{dkey}_{target}_{feat['key']}",
+                        ):
+                            selected.append(feat["key"])
+
+                    cs1, cs2 = st.columns([1, 3])
+                    save = cs1.form_submit_button("Save access", type="primary")
+                    if save:
+                        set_user_features(target, dkey, selected)
+                        st.cache_data.clear()
+                        st.success(
+                            f"Updated {len(selected)} feature(s) for {target} "
+                            f"on {d['title']}."
+                        )
+                        st.rerun()
+
+                st.caption(
+                    f"Currently granted: **{len(granted)}** / "
+                    f"{len(features_for(dkey))} features."
+                )
 
     # --- Logs tab -------------------------------------------------------------
     with tab_logs:

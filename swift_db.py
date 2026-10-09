@@ -69,6 +69,18 @@ def init_schema() -> None:
                 PRIMARY KEY (role, dashboard_key)
             );
 
+            -- Per-USER, per-feature (tab/table/KPI) permissions. Deny-by-default:
+            -- a row grants one feature of one dashboard to one user. Currently
+            -- only the Creditors/Debtors dashboard uses feature-level gating.
+            CREATE TABLE IF NOT EXISTS swift_hub_feature_permissions (
+                email          TEXT NOT NULL,
+                dashboard_key  TEXT NOT NULL,
+                feature_key    TEXT NOT NULL,
+                PRIMARY KEY (email, dashboard_key, feature_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_swift_hub_feature_perms_user
+              ON swift_hub_feature_permissions (email, dashboard_key);
+
             CREATE TABLE IF NOT EXISTS swift_hub_access_logs (
                 id             BIGSERIAL PRIMARY KEY,
                 email          TEXT NOT NULL,
@@ -232,6 +244,87 @@ def user_can_access(email: str, dashboard_key: str) -> bool:
     if u["role"] == "admin":
         return True
     return dashboard_key in get_permitted_dashboards(u["role"])
+
+
+# ---------------------------------------------------------------------------
+# Per-user feature (tab/table/KPI) permissions  — deny-by-default
+# ---------------------------------------------------------------------------
+def get_user_features(email: str, dashboard_key: str) -> set[str]:
+    """Return the set of feature_keys this user is explicitly granted for the
+    given dashboard. Empty set means (deny-by-default) they see nothing."""
+    email = email.lower().strip()
+    with get_conn().cursor() as cur:
+        cur.execute(
+            "SELECT feature_key FROM swift_hub_feature_permissions "
+            "WHERE email = %s AND dashboard_key = %s",
+            (email, dashboard_key),
+        )
+        return {r[0] for r in cur.fetchall()}
+
+
+def set_user_features(email: str, dashboard_key: str, feature_keys: list[str]) -> None:
+    """Replace ALL feature grants for this user+dashboard with feature_keys."""
+    email = email.lower().strip()
+    with get_conn().cursor() as cur:
+        cur.execute(
+            "DELETE FROM swift_hub_feature_permissions "
+            "WHERE email = %s AND dashboard_key = %s",
+            (email, dashboard_key),
+        )
+        for k in feature_keys:
+            cur.execute(
+                "INSERT INTO swift_hub_feature_permissions "
+                "(email, dashboard_key, feature_key) VALUES (%s, %s, %s)",
+                (email, dashboard_key, k),
+            )
+
+
+def grant_feature(email: str, dashboard_key: str, feature_key: str) -> None:
+    email = email.lower().strip()
+    with get_conn().cursor() as cur:
+        cur.execute(
+            "INSERT INTO swift_hub_feature_permissions "
+            "(email, dashboard_key, feature_key) VALUES (%s, %s, %s) "
+            "ON CONFLICT DO NOTHING",
+            (email, dashboard_key, feature_key),
+        )
+
+
+def revoke_feature(email: str, dashboard_key: str, feature_key: str) -> None:
+    email = email.lower().strip()
+    with get_conn().cursor() as cur:
+        cur.execute(
+            "DELETE FROM swift_hub_feature_permissions "
+            "WHERE email = %s AND dashboard_key = %s AND feature_key = %s",
+            (email, dashboard_key, feature_key),
+        )
+
+
+def list_feature_permissions(dashboard_key: str) -> list[dict]:
+    """All (email, feature_key) grants for a dashboard — for admin overview."""
+    with get_conn().cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT email, feature_key FROM swift_hub_feature_permissions "
+            "WHERE dashboard_key = %s ORDER BY email, feature_key",
+            (dashboard_key,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def user_can_see(email: str, dashboard_key: str, feature_key: str) -> bool:
+    """True if the user may see one feature (tab/table/KPI) of a dashboard.
+
+    Admins always see everything. Everyone else must (a) have the dashboard
+    via their role AND (b) be explicitly granted the feature. Deny-by-default.
+    """
+    u = get_user(email)
+    if not u or u["is_blocked"]:
+        return False
+    if u["role"] == "admin":
+        return True
+    if dashboard_key not in get_permitted_dashboards(u["role"]):
+        return False
+    return feature_key in get_user_features(email, dashboard_key)
 
 
 # ---------------------------------------------------------------------------

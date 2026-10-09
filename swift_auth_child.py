@@ -18,7 +18,12 @@ from urllib.parse import urlparse
 
 import streamlit as st
 
-from swift_auth import SESSION_KEY, RAW_TOKEN_KEY
+# Session-state keys — kept identical to swift_auth so hub and child agree.
+# Defined locally (not imported from swift_auth) so child dashboards don't need
+# the hub's heavy login stack (streamlit-local-storage, login CSS/assets).
+SESSION_KEY = "sh_user_email"
+RAW_TOKEN_KEY = "sh_raw_token"
+
 from swift_db import (
     get_user,
     init_schema,
