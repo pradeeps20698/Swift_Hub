@@ -69,9 +69,9 @@ DASHBOARDS = [
     },
     {
         "key": "creditors",
-        "title": "Creditors",
+        "title": "Creditors & Debtors",
         "icon": "🧾",
-        "description": "Creditor balances, ageing and outstanding payments.",
+        "description": "Creditor and debtor balances, ageing and net outstanding.",
         "url": "https://creditors-svohsct2mqh7xftazxglwd.streamlit.app/",
     },
 ]
